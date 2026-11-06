@@ -1,0 +1,1741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>WET CANVAS</title>
+<style>
+  html,body{margin:0;height:100%;background:#0d0d0d;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  canvas{display:block;touch-action:none}
+  #info{position:fixed;left:12px;top:12px;color:#eee;font-size:13px;background:rgba(0,0,0,.5);padding:10px 12px;border-radius:10px;max-width:330px;line-height:1.45;pointer-events:none}
+  #info b{color:#ffd9a0}
+  #loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;background:#111;color:#ddd;z-index:9;letter-spacing:.25em;font-weight:300}
+  #loading small{letter-spacing:.1em;margin-top:10px;opacity:.6}
+</style>
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+</head>
+<body>
+<div id="loading">WET CANVAS<small>preparing the studio…</small></div>
+<div id="info"><b>WET CANVAS</b> — Stage 2 · tool: <b id="tool">Round #10</b><br>
+Press <b>ENTER VR</b> on your Quest 3.<br>
+Preview: drag on the canvas to paint, drag elsewhere to look. Tap the color wheel to load color.<br>
+Keys: 1–8 oil brushes · 9/0 watercolor · P pencil · M marker · E eraser · I ink pen · S spray (hold) · W rinse · D dry · N next blank · V mural · B back · Z/Y undo/redo</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { VRButton } from 'three/addons/webxr/VRButton.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+
+/* ============================================================
+   WET CANVAS — a realistic VR painting studio
+   made by Noah Young
+   Stage 1: gallery, easel, oil paint engine, brushes, palette,
+            color wheel, water jar, hands, undo/redo
+   ============================================================ */
+
+// ---------------- settings ----------------
+const settings = { dominant: 'right' };
+try { const s = JSON.parse(localStorage.getItem('wetcanvas.settings') || '{}'); Object.assign(settings, s); } catch (e) {}
+function saveSettings(){ try { localStorage.setItem('wetcanvas.settings', JSON.stringify(settings)); } catch (e) {} }
+
+// ---------------- noise ----------------
+const PERM = new Uint8Array(512);
+(() => { const p = [...Array(256).keys()]; let seed = 1337;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let i = 255; i > 0; i--) { const j = (rnd() * (i + 1)) | 0; [p[i], p[j]] = [p[j], p[i]]; }
+  for (let i = 0; i < 512; i++) PERM[i] = p[i & 255]; })();
+const hash2 = (x, y) => PERM[(PERM[x & 255] + (y & 255)) & 511] / 255;
+function tnoise(x, y, px, py) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  const x0 = ((xi % px) + px) % px, y0 = ((yi % py) + py) % py, x1 = (x0 + 1) % px, y1 = (y0 + 1) % py;
+  const a = hash2(x0, y0), b = hash2(x1, y0), c = hash2(x0, y1), d = hash2(x1, y1);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+function tfbm(x, y, px, py, oct) { let s = 0, a = .5, n = 0, f = 1;
+  for (let i = 0; i < oct; i++) { s += a * tnoise(x * f, y * f, px * f, py * f); n += a; a *= .5; f *= 2; } return s / n; }
+let rseed = 9001; const rand = () => (rseed = (rseed * 16807) % 2147483647) / 2147483647;
+
+// ---------------- color science (Kubelka–Munk per channel) ----------------
+const srgb2lin = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+const KofR = R => { R = Math.min(0.998, Math.max(0.002, R)); return (1 - R) * (1 - R) / (2 * R); };
+const RofK = K => 1 + K - Math.sqrt(K * K + 2 * K);
+const kFromSRGB = (r, g, b) => [KofR(srgb2lin(r)), KofR(srgb2lin(g)), KofR(srgb2lin(b))];
+const LUTK = new Float32Array(4096), LUTS = new Uint8Array(4096);
+for (let i = 0; i < 4096; i++) {
+  const t = i / 4095, K = t / Math.max(1e-6, 1 - t); LUTK[i] = i === 4095 ? 0 : RofK(K);
+  const l = i / 4095; LUTS[i] = Math.round(255 * (l <= 0.0031308 ? l * 12.92 : 1.055 * Math.pow(l, 1 / 2.4) - 0.055));
+}
+const K2L = k => LUTK[(k / (k + 1) * 4095) | 0];
+const L2S = l => LUTS[l >= 1 ? 4095 : l <= 0 ? 0 : (l * 4095) | 0];
+function hsv2rgb(h, s, v) { const i = Math.floor(h * 6), f = h * 6 - i, p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s);
+  const m = [[v, t, p], [q, v, p], [p, v, t], [p, q, v], [t, p, v], [v, p, q]][((i % 6) + 6) % 6]; return m.map(x => x * 255); }
+
+// ---------------- renderer / scene ----------------
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.xr.enabled = true;
+renderer.xr.setFoveation(0.35);
+document.body.appendChild(renderer.domElement);
+document.body.appendChild(VRButton.createButton(renderer));
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xbfd3e6);
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.02, 300);
+const rig = new THREE.Group(); scene.add(rig); rig.add(camera);
+rig.position.set(0, 0, 0.02);
+camera.position.set(0, 1.55, 0);
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+// ---------------- procedural texture helpers ----------------
+function canvasFrom(w, h, rgba) { const c = document.createElement('canvas'); c.width = w; c.height = h;
+  c.getContext('2d').putImageData(new ImageData(rgba, w, h), 0, 0); return c; }
+function normalFromHeight(hg, w, h, strength) {
+  const out = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const xl = (x - 1 + w) % w, xr = (x + 1) % w, yu = (y - 1 + h) % h, yd = (y + 1) % h;
+    const dx = (hg[y * w + xr] - hg[y * w + xl]) * strength;
+    const dy = (hg[yu * w + x] - hg[yd * w + x]) * strength; // canvas rows go down, v goes up
+    const inv = 1 / Math.sqrt(dx * dx + dy * dy + 1), i = (y * w + x) * 4;
+    out[i] = (-dx * inv * .5 + .5) * 255; out[i + 1] = (-dy * inv * .5 + .5) * 255; out[i + 2] = (inv * .5 + .5) * 255; out[i + 3] = 255;
+  }
+  return out;
+}
+function texPair(w, h, fn, nStrength, aniso = 8) {
+  const rgb = new Uint8ClampedArray(w * h * 4), hg = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = y * w + x; const r = fn(x / w, y / h, x, y);
+    rgb[i * 4] = r[0]; rgb[i * 4 + 1] = r[1]; rgb[i * 4 + 2] = r[2]; rgb[i * 4 + 3] = 255; hg[i] = r[3]; }
+  const map = new THREE.CanvasTexture(canvasFrom(w, h, rgb)); map.colorSpace = THREE.SRGBColorSpace;
+  const nrm = new THREE.CanvasTexture(canvasFrom(w, h, normalFromHeight(hg, w, h, nStrength)));
+  for (const t of [map, nrm]) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = aniso; }
+  return { map, nrm };
+}
+const mixc = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+
+// Oak / beech wood — grain runs along v. Texture represents 0.25 m (u) x 1.0 m (v).
+function genWood(light, dark) {
+  return texPair(256, 1024, (X, Y) => {
+    const warp = tfbm(X * 3, Y * 2, 3, 2, 3);
+    const t = X * 9 + warp * 2.4 + tnoise(X * 2, Y * 8, 2, 8) * 0.35;
+    let ring = 0.5 + 0.5 * Math.sin(t * Math.PI * 2); ring = ring * ring * ring * ring;
+    const pore = Math.max(0, tnoise(X * 90, Y * 3, 90, 3) - 0.6) * 2.5;
+    const fine = tnoise(X * 40, Y * 1, 40, 1);
+    const ray = Math.max(0, tnoise(X * 14, Y * 60, 14, 60) - 0.82) * 3; // medullary flecks
+    const v = Math.min(1, Math.max(0, ring * 0.62 + pore * 0.45 + (fine - .5) * .25 + (warp - .5) * .35 + 0.12 - ray * 0.25));
+    const c = mixc(light, dark, v);
+    return [c[0], c[1], c[2], 1 - ring * 0.3 - pore * 0.9 + ray * 0.2];
+  }, 3.2);
+}
+const woodOak = genWood([205, 160, 108], [128, 84, 46]);
+const woodDark = genWood([120, 82, 52], [62, 38, 22]);
+
+const concrete = texPair(512, 512, (X, Y) => {
+  const big = tfbm(X * 4, Y * 4, 4, 4, 5), mid = tfbm(X * 16, Y * 16, 16, 16, 3);
+  const sp = tnoise(X * 160, Y * 160, 160, 160); const speck = sp > 0.8 ? (sp - 0.8) * 4 : 0;
+  const dark = sp < 0.12 ? (0.12 - sp) * 3 : 0;
+  const g = 150 + (big - .5) * 50 + (mid - .5) * 18 + speck * 30 - dark * 40;
+  return [g * 1.0, g * 0.985, g * 0.955, big * 0.3 + mid * 0.3 + speck * 0.4 - dark];
+}, 1.5);
+const plaster = texPair(256, 256, (X, Y) => {
+  const n = tfbm(X * 8, Y * 8, 8, 8, 4), f = tnoise(X * 64, Y * 64, 64, 64);
+  const g = 236 + (n - .5) * 6; return [g, g - 1.5, g - 4, n * 0.7 + f * 0.3];
+}, 1.2);
+const linen = texPair(128, 128, (X, Y, x, y) => {
+  const P = 4, cx = Math.floor(x / P), cy = Math.floor(y / P), fx = x / P - cx, fy = y / P - cy;
+  const over = ((cx + cy) & 1) === 0, prof = over ? Math.sin(Math.PI * fy) : Math.sin(Math.PI * fx);
+  const g = 228 + prof * 14 + (hash2(cx, cy) - .5) * 8; return [g, g - 3, g - 12, prof];
+}, 2.5);
+
+function scaleUV(geo, sx, sy) { const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * sx, uv.getY(i) * sy); return geo; }
+
+// Box whose UVs follow the longest axis as wood grain, in real-world scale.
+function woodBox(w, h, d) {
+  const g = new THREE.BoxGeometry(w, h, d, 1, 1, 1);
+  const dims = [w, h, d], L = dims.indexOf(Math.max(w, h, d));
+  const pos = g.attributes.position, nor = g.attributes.normal, uv = g.attributes.uv;
+  const ox = rand() * 0.8, oy = rand() * 3;
+  for (let i = 0; i < pos.count; i++) {
+    const p = [pos.getX(i), pos.getY(i), pos.getZ(i)];
+    const n = [Math.abs(nor.getX(i)), Math.abs(nor.getY(i)), Math.abs(nor.getZ(i))];
+    const na = n.indexOf(Math.max(...n)); const axes = [0, 1, 2].filter(a => a !== na);
+    let u, v;
+    if (axes.includes(L)) { const o = axes.find(a => a !== L); v = p[L] / 1.0 + oy; u = p[o] / 0.25 + ox + (na === 0 ? 0.37 : 0); }
+    else { u = p[axes[0]] / 0.25 + ox; v = p[axes[1]] / 0.25 + oy; }
+    uv.setXY(i, u, v);
+  }
+  return g;
+}
+
+// ---------------- materials ----------------
+const M = {
+  oak: new THREE.MeshPhysicalMaterial({ map: woodOak.map, normalMap: woodOak.nrm, normalScale: new THREE.Vector2(1.1, 1.1), roughness: 0.52, clearcoat: 0.25, clearcoatRoughness: 0.45 }),
+  walnut: new THREE.MeshPhysicalMaterial({ map: woodDark.map, normalMap: woodDark.nrm, roughness: 0.45, clearcoat: 0.35, clearcoatRoughness: 0.35 }),
+  steel: new THREE.MeshStandardMaterial({ color: 0x1b1b1d, roughness: 0.45, metalness: 0.7 }),
+  brass: new THREE.MeshStandardMaterial({ color: 0xc9a25a, roughness: 0.3, metalness: 1 }),
+  chrome: new THREE.MeshStandardMaterial({ color: 0xd4d7db, roughness: 0.22, metalness: 1 }),
+  white: new THREE.MeshStandardMaterial({ color: 0xf1efea, roughness: 0.85 }),
+  rubber: new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9 }),
+};
+concrete.map.repeat.set(1, 1); concrete.nrm.repeat.set(1, 1);
+M.floor = new THREE.MeshStandardMaterial({ map: concrete.map, normalMap: concrete.nrm, normalScale: new THREE.Vector2(0.5, 0.5), roughness: 0.36, metalness: 0.0 });
+M.wall = new THREE.MeshStandardMaterial({ map: plaster.map, normalMap: plaster.nrm, normalScale: new THREE.Vector2(0.35, 0.35), roughness: 0.92 });
+M.ceiling = new THREE.MeshStandardMaterial({ color: 0xf4f3f0, roughness: 0.95 });
+M.linen = new THREE.MeshStandardMaterial({ map: linen.map, normalMap: linen.nrm, roughness: 0.95 });
+linen.map.repeat.set(12, 12); linen.nrm.repeat.set(12, 12);
+
+// ---------------- the room ----------------
+const ROOM = { x0: -7, x1: 7, z0: -8, z1: 8, h: 4.2 };
+function addMesh(geo, mat, x, y, z, parent = scene, cast = false, recv = true) {
+  const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = cast; m.receiveShadow = recv; parent.add(m); return m; }
+{
+  const fl = new THREE.PlaneGeometry(14, 16); fl.rotateX(-Math.PI / 2); scaleUV(fl, 14 / 2.5, 16 / 2.5);
+  addMesh(fl, M.floor, 0, 0, 0);
+  const ce = new THREE.PlaneGeometry(14, 16); ce.rotateX(Math.PI / 2); addMesh(ce, M.ceiling, 0, ROOM.h, 0, scene, true, true);
+  const wall = (w, h, x, y, z, ry) => { const g = new THREE.PlaneGeometry(w, h); scaleUV(g, w / 2, h / 2); const m = addMesh(g, M.wall, x, y, z, scene, true, true); m.rotation.y = ry; return m; };
+  wall(16, ROOM.h, -7, ROOM.h / 2, 0, Math.PI / 2);
+  wall(14, ROOM.h, 0, ROOM.h / 2, -8, 0);
+  wall(14, ROOM.h, 0, ROOM.h / 2, 8, Math.PI);
+  // right wall with a large window (z -4.5..4.5, y 0.3..3.7)
+  wall(9, 0.3, 7, 0.15, 0, -Math.PI / 2);
+  wall(9, 0.5, 7, 3.95, 0, -Math.PI / 2);
+  wall(3.5, ROOM.h, 7, ROOM.h / 2, -6.25, -Math.PI / 2);
+  wall(3.5, ROOM.h, 7, ROOM.h / 2, 6.25, -Math.PI / 2);
+  // thick wall reveal so the window casts proper light shafts
+  const rev = new THREE.MeshStandardMaterial({ color: 0xe9e7e2, roughness: 0.9 });
+  addMesh(new THREE.BoxGeometry(0.35, 0.3, 9), rev, 7.18, 0.15, 0, scene, true);
+  addMesh(new THREE.BoxGeometry(0.35, 0.5, 9), rev, 7.18, 3.95, 0, scene, true);
+  // shadow-gap baseboards
+  const gap = new THREE.MeshBasicMaterial({ color: 0x2a2928 });
+  const bb = (w, x, z, ry) => { const m = addMesh(new THREE.PlaneGeometry(w, 0.025), gap, x, 0.0125, z); m.rotation.y = ry; };
+  bb(16, -6.995, 0, Math.PI / 2); bb(14, 0, -7.995, 0); bb(14, 0, 7.995, Math.PI);
+  // window mullions (black aluminium)
+  const alu = new THREE.MeshStandardMaterial({ color: 0x18191b, roughness: 0.4, metalness: 0.6 });
+  for (const z of [-4.5, -2.25, 0, 2.25, 4.5]) addMesh(new THREE.BoxGeometry(0.07, 3.4, 0.06), alu, 7.02, 2.0, z, scene, true);
+  for (const y of [0.31, 2.75, 3.69]) addMesh(new THREE.BoxGeometry(0.07, 0.06, 9.06), alu, 7.02, y, 0, scene, true);
+  const glass = new THREE.MeshPhysicalMaterial({ color: 0xe8f0f2, roughness: 0.03, transparent: true, opacity: 0.08, depthWrite: false, metalness: 0 });
+  const gl = new THREE.PlaneGeometry(9, 3.4); const gm = addMesh(gl, glass, 7.03, 2.0, 0); gm.rotation.y = -Math.PI / 2; gm.receiveShadow = false;
+  // ceiling tracks and spot fixtures
+  for (const x of [-3.5, 0, 3.5]) {
+    addMesh(new THREE.BoxGeometry(0.035, 0.03, 15), alu, x, ROOM.h - 0.015, 0);
+    for (let z = -7; z <= 7; z += 2.3) {
+      const f = new THREE.Group(); f.position.set(x, ROOM.h - 0.04, z); scene.add(f);
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.14, 20), alu); body.rotation.z = 0.6; body.position.y = -0.07; f.add(body);
+      const lens = new THREE.Mesh(new THREE.CircleGeometry(0.04, 20), new THREE.MeshBasicMaterial({ color: 0xfff1d6 }));
+      lens.position.set(0.042, -0.11, 0); lens.rotation.set(0, 0, 0.6 + Math.PI / 2); lens.rotateX(-Math.PI / 2); f.add(lens);
+    }
+  }
+}
+// warm light pools on the walls (cheap fake spotlights)
+{
+  const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
+  const gr = g.createRadialGradient(128, 110, 4, 128, 128, 128); gr.addColorStop(0, 'rgba(255,226,180,0.9)'); gr.addColorStop(0.45, 'rgba(255,214,160,0.35)'); gr.addColorStop(1, 'rgba(255,200,140,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.MeshBasicMaterial({ map: t, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.32 });
+  for (let z = -6; z <= 6; z += 2.3) { if (Math.abs(z + 0.5) < 2.1) continue; const m = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.8), mat); m.position.set(-6.985, 2.3, z); m.rotation.y = Math.PI / 2; scene.add(m); }
+  for (let x = -5.5; x <= 5.5; x += 2.3) { const m = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.8), mat); m.position.set(x, 2.3, -7.985); scene.add(m); }
+}
+// outside world: sky, ground, trees
+{
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(150, 32, 16), new THREE.ShaderMaterial({ side: THREE.BackSide, depthWrite: false,
+    uniforms: {}, vertexShader: 'varying vec3 vp; void main(){ vp=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+    fragmentShader: 'varying vec3 vp; void main(){ float h=normalize(vp).y; vec3 hor=vec3(0.98,0.88,0.74); vec3 zen=vec3(0.36,0.58,0.86); vec3 c=mix(hor,zen,pow(clamp(h,0.0,1.0),0.55)); if(h<0.0) c=vec3(0.55,0.58,0.5); gl_FragColor=vec4(c,1.0);\n#include <colorspace_fragment>\n}' }));
+  scene.add(sky);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(300, 300), new THREE.MeshStandardMaterial({ color: 0x6f7d55, roughness: 1 }));
+  ground.rotation.x = -Math.PI / 2; ground.position.y = -0.05; ground.receiveShadow = true; scene.add(ground);
+  const plaza = new THREE.Mesh(new THREE.PlaneGeometry(10, 30), new THREE.MeshStandardMaterial({ color: 0xb7b2a8, roughness: 0.9 }));
+  plaza.rotation.x = -Math.PI / 2; plaza.position.set(12.5, -0.04, 0); plaza.receiveShadow = true; scene.add(plaza);
+  const leaf = new THREE.MeshStandardMaterial({ color: 0x4d6b35, roughness: 0.9, flatShading: true });
+  const bark = new THREE.MeshStandardMaterial({ color: 0x4a3a2c, roughness: 1 });
+  const crown = new THREE.IcosahedronGeometry(1, 1), trunk = new THREE.CylinderGeometry(0.12, 0.18, 1, 8);
+  const N = 40, im = new THREE.InstancedMesh(crown, leaf, N), it = new THREE.InstancedMesh(trunk, bark, N);
+  const mtx = new THREE.Matrix4(), q = new THREE.Quaternion();
+  for (let i = 0; i < N; i++) {
+    const x = 19 + rand() * 40, z = -45 + rand() * 90, s = 1.6 + rand() * 2.2, th = 1.8 + rand() * 1.5;
+    mtx.compose(new THREE.Vector3(x, th + s * 0.8, z), q.setFromEuler(new THREE.Euler(rand(), rand() * 6, rand())), new THREE.Vector3(s, s * 1.15, s)); im.setMatrixAt(i, mtx);
+    mtx.compose(new THREE.Vector3(x, th / 2, z), new THREE.Quaternion(), new THREE.Vector3(1, th, 1)); it.setMatrixAt(i, mtx);
+  }
+  scene.add(im, it);
+  const bmat = new THREE.MeshStandardMaterial({ color: 0xc9c2b6, roughness: 0.9 });
+  for (let i = 0; i < 9; i++) { const h = 6 + rand() * 18; const b = new THREE.Mesh(new THREE.BoxGeometry(6 + rand() * 6, h, 6 + rand() * 8), bmat); b.position.set(70 + rand() * 30, h / 2, -60 + i * 15); scene.add(b); }
+}
+
+// ---------------- lights ----------------
+scene.add(new THREE.HemisphereLight(0xfff4e8, 0x8b857a, 0.9));
+const sun = new THREE.DirectionalLight(0xffe2bc, 3.2);
+sun.position.set(12, 7.2, 3); sun.target.position.set(0, 0, -1); scene.add(sun, sun.target);
+sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12, near: 1, far: 34 });
+sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
+const spotEasel = new THREE.SpotLight(0xffe6c4, 26, 0, 0.5, 0.75, 2);
+spotEasel.position.set(0.9, ROOM.h - 0.15, 0.9); spotEasel.target.position.set(0, 1.25, -0.8); scene.add(spotEasel, spotEasel.target);
+const spotLife = new THREE.SpotLight(0xffe0bc, 22, 0, 0.42, 0.7, 2);
+spotLife.position.set(-1.3, ROOM.h - 0.15, -0.6); spotLife.target.position.set(-1.25, 0.95, -1.9); scene.add(spotLife, spotLife.target);
+spotLife.castShadow = true; spotLife.shadow.mapSize.set(1024, 1024); spotLife.shadow.bias = -0.0005;
+
+// ---------------- title vinyl on the back wall ----------------
+function textPlane(lines, w, h, pxW, pxH, opts = {}) {
+  const c = document.createElement('canvas'); c.width = pxW; c.height = pxH; const g = c.getContext('2d');
+  if (opts.bg) { g.fillStyle = opts.bg; g.fillRect(0, 0, pxW, pxH); }
+  for (const l of lines) { g.fillStyle = l.color || '#2b2a28'; g.font = l.font; g.textAlign = l.align || 'center'; g.textBaseline = 'middle';
+    if (l.spacing && g.letterSpacing !== undefined) g.letterSpacing = l.spacing + 'px'; g.fillText(l.text, l.x ?? pxW / 2, l.y); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  return new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: t, transparent: !opts.bg, roughness: 0.8 }));
+}
+{
+  const t = textPlane([
+    { text: 'WET CANVAS', font: '200 230px Helvetica Neue, Helvetica, Arial, sans-serif', y: 210, spacing: 60 },
+    { text: 'made by Noah Young', font: '300 64px Helvetica Neue, Helvetica, Arial, sans-serif', y: 430, color: '#5a5753', spacing: 14 },
+  ], 6, 1.5, 2048, 512);
+  t.position.set(0, 2.75, -7.975); scene.add(t);
+}
+
+// ---------------- PAINT ENGINE ----------------
+const KB = new Float32Array(256); for (let i = 0; i < 256; i++) KB[i] = KofR(srgb2lin(i));
+const SHAPE_ID = { round: 0, flat: 1, filbert: 2, fan: 3 };
+function maskFn(sh, u, v) {
+  if (sh === 0) { const r2 = u * u + v * v; if (r2 >= 1) return 0; const r = Math.sqrt(r2); if (r < 0.55) return 1; const t = (1 - r) / 0.45; return t * t * (3 - 2 * t); }
+  const au = u < 0 ? -u : u, av = v < 0 ? -v : v;
+  if (sh === 1) { if (au >= 1 || av >= 1) return 0; return (au < 0.82 ? 1 : (1 - au) / 0.18) * (av < 0.45 ? 1 : (1 - av) / 0.55); }
+  if (sh === 2) { const r = Math.cbrt(au * au * au + av * av * av); if (r >= 1) return 0; return r < 0.6 ? 1 : (1 - r) / 0.4; }
+  if (au >= 1 || av >= 1) return 0; return (au < 0.85 ? 1 : (1 - au) / 0.15) * (1 - av);
+}
+// Surface kinds: texture amplitude, groove shading, normal strength, dry roughness, absorbency, how much paint fills texture, granulation
+const KINDS = {
+  canvas: { amp: 0.11, shade: 0.17, nS: 4.2, rough: 0.92, absorb: 0.3, fill: 6, gran: 0.3, hapt: 'weave', scrape: 1500 },
+  paper:  { amp: 0.16, shade: 0.08, nS: 3.6, rough: 0.95, absorb: 1.0, fill: 9, gran: 1.0, hapt: 'grain', scrape: 2600 },
+  wood:   { amp: 0.07, shade: 0.0, nS: 3.4, rough: 0.72, absorb: 0.5, fill: 6, gran: 0.4, hapt: 'smooth', scrape: 1100 },
+  brick:  { amp: 0.9, shade: 0.3, nS: 2.6, rough: 0.9, absorb: 0.6, fill: 1.5, gran: 0.6, hapt: 'rough', scrape: 800 },
+  palette:{ amp: 0, shade: 0, nS: 5, rough: 0.5, absorb: 0, fill: 1, gran: 0, hapt: 'smooth', scrape: 1200 },
+};
+const MED = { none: 0, oil: 1, acrylic: 2, water: 3, ink: 4, spray: 5 };
+const DRY_RATE = [0, 1 / 300, 1 / 60, 1 / 20, 1 / 10, 1 / 30];   // game-speed drying
+const DRY_ROUGH = [0.9, 0.4, 0.66, 0.85, 0.55, 0.45];
+let frs = 2463534242; const frand = () => { frs ^= frs << 13; frs >>>= 0; frs ^= frs >>> 17; frs ^= frs << 5; frs >>>= 0; return frs / 4294967296; };
+const nowS = () => performance.now() / 1000;
+
+function woodSample(X, Y, light, dark) {
+  const warp = tfbm(X * 3, Y * 2, 3, 2, 3);
+  const t = X * 9 + warp * 2.4 + tnoise(X * 2, Y * 8, 2, 8) * 0.35;
+  let ring = 0.5 + 0.5 * Math.sin(t * Math.PI * 2); ring = ring * ring * ring * ring;
+  const pore = Math.max(0, tnoise(X * 90, Y * 3, 90, 3) - 0.6) * 2.5;
+  const fine = tnoise(X * 40, Y * 1, 40, 1);
+  const v = Math.min(1, Math.max(0, ring * 0.62 + pore * 0.45 + (fine - .5) * .25 + (warp - .5) * .35 + 0.12));
+  return [light[0] + (dark[0] - light[0]) * v, light[1] + (dark[1] - light[1]) * v, light[2] + (dark[2] - light[2]) * v, 1 - ring * 0.3 - pore * 0.9];
+}
+const BRICK_COLS = [[152, 64, 46], [131, 54, 41], [168, 86, 60], [112, 48, 39], [141, 72, 52], [92, 44, 36], [160, 98, 72]];
+function baseSample(kind, x, y, ppm) {
+  const mx = x / ppm, my = y / ppm;
+  if (kind === 'canvas') {
+    const P = 0.0019 * ppm, cx = Math.floor(x / P), cy = Math.floor(y / P), fx = x / P - cx, fy = y / P - cy;
+    const prof = ((cx + cy) & 1) === 0 ? Math.sin(Math.PI * fy) : Math.sin(Math.PI * fx);
+    const b = Math.min(1, Math.max(0, 0.3 + 0.6 * prof + (hash2(cx & 255, cy & 255) - .5) * 0.25 + (tnoise(mx * 30, my * 30, 4096, 4096) - .5) * 0.3));
+    return [236, 232, 222, b];
+  }
+  if (kind === 'paper') {
+    const n1 = tnoise(mx / 0.0013, my / 0.0013, 8192, 8192), n2 = tnoise(mx / 0.0004, my / 0.0004, 8192, 8192), n3 = tnoise(mx / 0.006, my / 0.006, 8192, 8192);
+    const b = Math.min(1, Math.max(0, 0.6 * n1 + 0.25 * n2 + 0.3 * (n3 - 0.5) + 0.08));
+    const s = 0.985 + 0.015 * b; return [251 * s, 249 * s, 242 * s, b];
+  }
+  if (kind === 'wood') { const X = ((mx / 0.25) % 1 + 1) % 1, Y = ((my / 1.0) % 1 + 1) % 1; return woodSample(X, Y, [228, 199, 152], [188, 148, 100]); }
+  if (kind === 'brick') {
+    const BW = 0.215, BH = 0.065, MJ = 0.011, CWb = BW + MJ, CHb = BH + MJ;
+    const row = Math.floor(my / CHb), off = (row & 1) ? CWb / 2 : 0, col = Math.floor((mx + off) / CWb);
+    const fx = (mx + off) - col * CWb, fy = my - row * CHb;
+    const e = Math.min(fx - MJ, CWb - fx, fy - MJ, CHb - fy);
+    const n = tnoise(mx * 300, my * 300, 4096, 4096), pit = tnoise(mx * 1100, my * 1100, 8192, 8192);
+    if (e < 0) { const g = 0.9 + 0.15 * n; return [178 * g, 172 * g, 161 * g, 0.04 + 0.12 * n]; }
+    const hb = hash2((col + 64) & 255, (row + 64) & 255), c = BRICK_COLS[Math.min(BRICK_COLS.length - 1, (hb * BRICK_COLS.length) | 0)];
+    const big = tnoise(mx * 25 + col * 3.1, my * 25, 4096, 4096), g = 0.82 + 0.3 * n + 0.18 * (big - .5);
+    const ch = Math.min(1, e / 0.004), edgeDark = 0.85 + 0.15 * ch;
+    const pitD = pit < 0.14 ? (0.14 - pit) * 5 : 0;
+    return [c[0] * g * edgeDark, c[1] * g * edgeDark, c[2] * g * edgeDark, Math.max(0, 0.4 + 0.55 * (ch * ch * (3 - 2 * ch)) + (n - .5) * 0.12 - pitD * 0.35)];
+  }
+  return [0, 0, 0, 0];
+}
+
+class PaintSurface {
+  constructor({ kind, W, H, worldW, worldH, undo = false, transparent = false, isPalette = false }) {
+    const kd = KINDS[kind];
+    Object.assign(this, { kind, kd, W, H, worldW, worldH, undoOn: undo, transparent, isPalette });
+    const N = W * H; this.N = N; this.ppm = W / worldW;
+    this.K = new Float32Array(N * 3); this.gK = new Float32Array(N * 3); this.wK = new Float32Array(N * 3);
+    this.h = new Float32Array(N); this.wet = new Float32Array(N); this.water = new Float32Array(N); this.base = new Float32Array(N); this.med = new Uint8Array(N);
+    this.mask = null;
+    if (kind !== 'palette') for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const s = baseSample(kind, x, y, this.ppm), i = y * W + x;
+      this.K[i * 3] = KB[Math.min(255, s[0] + 0.5) | 0]; this.K[i * 3 + 1] = KB[Math.min(255, s[1] + 0.5) | 0]; this.K[i * 3 + 2] = KB[Math.min(255, s[2] + 0.5) | 0]; this.base[i] = s[3];
+    }
+    this.layers = [[this.K, 3], [this.gK, 3], [this.wK, 3], [this.h, 1], [this.wet, 1], [this.water, 1], [this.med, 1]];
+    this.colData = new Uint8Array(N * 4); this.nrmData = new Uint8Array(N * 4);
+    const mk = (data, srgb) => { const t = new THREE.DataTexture(data, W, H, THREE.RGBAFormat, THREE.UnsignedByteType);
+      t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter;
+      t.generateMipmaps = true; t.anisotropy = 8; t.flipY = false; t.needsUpdate = true; return t; };
+    this.colTex = mk(this.colData, true); this.nrmTex = mk(this.nrmData, false);
+    this.mat = new THREE.MeshStandardMaterial({ map: this.colTex, normalMap: this.nrmTex, roughness: 1, metalness: 0, transparent, envMapIntensity: 0.8 });
+    if (transparent) this.mat.depthWrite = false;
+    this.mat.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <roughnessmap_fragment>', 'float roughnessFactor = roughness * texture2D( normalMap, vNormalMapUv ).a;'); };
+    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(worldW, worldH), this.mat); this.mesh.receiveShadow = true; this.mesh.userData.surface = this;
+    this.T = 64; this.TX = Math.ceil(W / 64); this.TY = Math.ceil(H / 64); this.NT = this.TX * this.TY;
+    this.dirtyT = new Uint8Array(this.NT); this.dirtyList = [];
+    this.actW = new Uint8Array(this.NT); this.actP = new Uint8Array(this.NT); this.lastT = new Float32Array(this.NT); this.refT = new Float32Array(this.NT);
+    this.rec = null; this.undoStack = []; this.redoStack = []; this.inv = new THREE.Matrix4();
+    this.uploaded = false; this.retired = false; this.drips = []; this.gx = 0; this.gy = -1; this.gmag = 1; this.simAcc = 0; this.tick = 0; this.dryCursor = 0; this.dripCool = 0;
+  }
+  // ---- dirty / activation ----
+  markDirty(x0, y0, x1, y1) {
+    x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(this.W - 1, x1); y1 = Math.min(this.H - 1, y1); if (x0 > x1 || y0 > y1) return;
+    for (let ty = y0 >> 6; ty <= y1 >> 6; ty++) for (let tx = x0 >> 6; tx <= x1 >> 6; tx++) { const id = ty * this.TX + tx; if (!this.dirtyT[id]) { this.dirtyT[id] = 1; this.dirtyList.push(id); } }
+  }
+  markTile(id) { if (!this.dirtyT[id]) { this.dirtyT[id] = 1; this.dirtyList.push(id); } }
+  activate(arr, x0, y0, x1, y1) {
+    x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(this.W - 1, x1); y1 = Math.min(this.H - 1, y1);
+    const t = nowS(); for (let ty = y0 >> 6; ty <= y1 >> 6; ty++) for (let tx = x0 >> 6; tx <= x1 >> 6; tx++) { const id = ty * this.TX + tx; if (!arr[id]) { arr[id] = 1; this.lastT[id] = t; } }
+  }
+  // ---- undo (copy-on-write tiles, all layers) ----
+  beginStroke() { if (this.undoOn && !this.retired) { this.rec = new Map(); lastSurf = this; } }
+  endStroke() { if (this.rec && this.rec.size) { this.undoStack.push(this.rec); if (this.undoStack.length > 40) this.undoStack.shift(); this.redoStack.length = 0; } this.rec = null; }
+  saveTiles(x0, y0, x1, y1) {
+    const W = this.W;
+    for (let ty = y0 >> 6; ty <= y1 >> 6; ty++) for (let tx = x0 >> 6; tx <= x1 >> 6; tx++) {
+      const id = ty * this.TX + tx; if (this.rec.has(id)) continue;
+      const X0 = tx * 64, Y0 = ty * 64, w = Math.min(64, W - X0), h = Math.min(64, this.H - Y0);
+      const copies = this.layers.map(([arr, c]) => { const out = new arr.constructor(w * h * c); for (let r = 0; r < h; r++) { const s = (Y0 + r) * W + X0; out.set(arr.subarray(s * c, (s + w) * c), r * w * c); } return out; });
+      this.rec.set(id, { copies, X0, Y0, w, h });
+    }
+  }
+  swap(rec) {
+    const W = this.W;
+    for (const t of rec.values()) {
+      this.layers.forEach(([arr, c], li) => { const cp = t.copies[li];
+        for (let r = 0; r < t.h; r++) { const s = (t.Y0 + r) * W + t.X0, cur = arr.slice(s * c, (s + t.w) * c);
+          arr.set(cp.subarray(r * t.w * c, (r + 1) * t.w * c), s * c); cp.set(cur, r * t.w * c); } });
+      this.markDirty(t.X0 - 1, t.Y0 - 1, t.X0 + t.w, t.Y0 + t.h);
+      this.activate(this.actW, t.X0, t.Y0, t.X0 + t.w - 1, t.Y0 + t.h - 1); this.activate(this.actP, t.X0, t.Y0, t.X0 + t.w - 1, t.Y0 + t.h - 1);
+    }
+  }
+  undo() { const r = this.undoStack.pop(); if (!r) return false; this.swap(r); this.redoStack.push(r); return true; }
+  redo() { const r = this.redoStack.pop(); if (!r) return false; this.swap(r); this.undoStack.push(r); return true; }
+
+  // ---- one tool footprint ----
+  stamp(px, py, hwM, hhM, ang, pressure, tool) {
+    if (this.retired) return;
+    const W = this.W, H = this.H;
+    const hw = Math.max(0.7, hwM * this.ppm), hh = Math.max(0.7, hhM * this.ppm);
+    const R = Math.ceil(Math.max(hw, hh)) + 1;
+    const x0 = Math.max(0, Math.floor(px - R)), x1 = Math.min(W - 1, Math.ceil(px + R)), y0 = Math.max(0, Math.floor(py - R)), y1 = Math.min(H - 1, Math.ceil(py + R));
+    if (x0 > x1 || y0 > y1) return;
+    if (this.rec) this.saveTiles(x0, y0, x1, y1);
+    const g = { px, py, c: Math.cos(ang), s: Math.sin(ang), ihw: 1 / hw, ihh: 1 / hh, shape: SHAPE_ID[tool.def.shape], x0, x1, y0, y1, R, pressure };
+    const m = toolMedium(tool);
+    if (m === 'oil' || m === 'acrylic') this.stampPaint(g, tool, m === 'acrylic');
+    else if (m === 'water') this.stampWater(g, tool);
+    else this.stampDry(g, tool, m);
+    this.markDirty(x0 - 1, y0 - 1, x1 + 1, y1 + 1);
+  }
+  stampPaint(g, b, acrylic) {
+    const def = b.def, st = b.state, W = this.W, { px, py, c, s, ihw, ihh, shape, x0, x1, y0, y1, R, pressure } = g, bri = b.bristles;
+    const K = this.K, gK = this.gK, wK = this.wK, h = this.h, wet = this.wet, mask = this.mask, tr = this.transparent, med = this.med;
+    // pass 1: wet paint pickup (the brush gets dirty)
+    let sw = 0, s0 = 0, s1 = 0, s2 = 0, sa = 0; const stp = R > 6 ? 2 : 1;
+    for (let y = y0; y <= y1; y += stp) { const dy = y - py;
+      for (let x = x0; x <= x1; x += stp) { const dx = x - px;
+        const m = maskFn(shape, (dx * c + dy * s) * ihw, (-dx * s + dy * c) * ihh); if (m <= 0) continue;
+        const i = y * W + x; if (mask && !mask[i]) continue; sa += m;
+        let w = m * Math.min(1, wet[i]); if (tr) w *= Math.min(1, h[i] * 25); if (w <= 0) continue;
+        sw += w; s0 += K[i * 3] * w; s1 += K[i * 3 + 1] * w; s2 += K[i * 3 + 2] * w; } }
+    const tip = st.tipK;
+    if (sw > 1e-4 && sa > 0) {
+      const frac = Math.min(1, sw / sa); let pr = def.pickup * frac * (0.5 + pressure * 0.5);
+      if (this.isPalette) pr = Math.min(0.95, pr * 3.2);
+      const a0 = s0 / sw, a1 = s1 / sw, a2 = s2 / sw;
+      tip[0] += (a0 - tip[0]) * pr; tip[1] += (a1 - tip[1]) * pr; tip[2] += (a2 - tip[2]) * pr;
+      if (this.isPalette) { const r = st.resK, q = Math.min(1, pr * 1.2); r[0] += (a0 - r[0]) * q; r[1] += (a1 - r[1]) * q; r[2] += (a2 - r[2]) * q; if (frac > 0.12) { st.loaded = true; st.load = 1; st.medium = 'oil'; } }
+      else if (!st.loaded) st.load = Math.min(0.85, st.load + pr * 0.6 * frac);
+    }
+    if (st.loaded) { const r = st.resK, q = 0.1; tip[0] += (r[0] - tip[0]) * q; tip[1] += (r[1] - tip[1]) * q; tip[2] += (r[2] - tip[2]) * q; st.load = 1; }
+    const opac = def.opacity * st.load * (0.55 + 0.45 * pressure) * (acrylic ? 1.1 : 1);
+    if (opac < 0.002) return;
+    const imp = def.impasto * st.load * (acrylic ? 0.5 : 1), ridge = def.ridge * st.load * (acrylic ? 0.6 : 1), flat = def.flatten * pressure, dryT = 1 - Math.min(1, st.load * 1.25);
+    const t0 = tip[0], t1 = tip[1], t2 = tip[2], hRate = st.loaded ? 0.08 : 0.03, mcode = acrylic ? MED.acrylic : MED.oil;
+    for (let y = y0; y <= y1; y++) { const dy = y - py;
+      for (let x = x0; x <= x1; x++) { const dx = x - px; const u = (dx * c + dy * s) * ihw;
+        const m = maskFn(shape, u, (-dx * s + dy * c) * ihh); if (m <= 0) continue;
+        const i = y * W + x; if (mask && !mask[i]) continue;
+        let bi = ((u * 0.5 + 0.5) * 127) | 0; bi = bi < 0 ? 0 : bi > 127 ? 127 : bi;
+        let br = bri[bi]; if (br < dryT) br *= 0.12;
+        const a = m * br; if (a < 0.003) continue;
+        const mix = a * opac, i3 = i * 3;
+        if (tr && h[i] < 0.004) { if (mix > 0.02) { K[i3] = t0; K[i3 + 1] = t1; K[i3 + 2] = t2; } }
+        else { K[i3] += (t0 - K[i3]) * mix; K[i3 + 1] += (t1 - K[i3 + 1]) * mix; K[i3 + 2] += (t2 - K[i3 + 2]) * mix; }
+        const cv = 1 - mix; gK[i3] *= cv; gK[i3 + 1] *= cv; gK[i3 + 2] *= cv; wK[i3] *= cv; wK[i3 + 1] *= cv; wK[i3 + 2] *= cv;
+        const rg = m * (1 - m) * 4, hv = h[i], tgt = imp * 8 * (0.25 + 0.75 * br) * (1 - flat * 4);
+        const nh = hv + (tgt - hv) * a * (tgt > hv ? 0.2 : hRate) + rg * ridge * a * (1 - hv);
+        h[i] = nh > 1 ? 1 : nh < 0 ? 0 : nh;
+        const nw = mix * 2.2; if (nw > wet[i]) wet[i] = nw > 1 ? 1 : nw;
+        if (mix > 0.05) med[i] = mcode;
+      } }
+    if (!st.loaded) st.load *= 0.985;
+    if (!this.isPalette) this.activate(this.actP, x0, y0, x1, y1);
+  }
+  stampWater(g, b) {
+    const st = b.state, W = this.W, { px, py, c, s, ihw, ihh, shape, x0, x1, y0, y1, pressure } = g, bri = b.bristles;
+    const water = this.water, wK = this.wK, med = this.med, mask = this.mask;
+    const t0 = st.tipK[0], t1 = st.tipK[1], t2 = st.tipK[2], wl = st.water, conc = st.conc;
+    const wAdd = 0.14 * (0.3 + wl) * (0.6 + pressure * 0.6), pAdd = 0.05 * conc * (0.4 + wl * 0.6);
+    // brush lifts a little of the wash it passes through
+    for (let y = y0; y <= y1; y++) { const dy = y - py;
+      for (let x = x0; x <= x1; x++) { const dx = x - px; const u = (dx * c + dy * s) * ihw;
+        const m = maskFn(shape, u, (-dx * s + dy * c) * ihh); if (m <= 0) continue;
+        const i = y * W + x; if (mask && !mask[i]) continue;
+        let bi = ((u * 0.5 + 0.5) * 127) | 0; bi = bi < 0 ? 0 : bi > 127 ? 127 : bi;
+        const a = m * bri[bi]; if (a < 0.003) continue; const i3 = i * 3;
+        const nw = water[i] + a * wAdd; water[i] = nw > 1.5 ? 1.5 : nw;
+        const ad = a * pAdd; wK[i3] += t0 * ad; wK[i3 + 1] += t1 * ad; wK[i3 + 2] += t2 * ad;
+        med[i] = MED.water;
+      } }
+    st.water = Math.max(0.35, st.water * 0.997);
+    this.activate(this.actW, x0, y0, x1, y1);
+  }
+  stampDry(g, t, m) {
+    const W = this.W, { px, py, c, s, ihw, ihh, shape, x0, x1, y0, y1, pressure } = g, def = t.def, st = t.state;
+    const K = this.K, gK = this.gK, wK = this.wK, water = this.water, wet = this.wet, base = this.base, med = this.med, mask = this.mask;
+    const t0 = st.tipK[0], t1 = st.tipK[1], t2 = st.tipK[2];
+    const strength = def.strength || 1;
+    for (let y = y0; y <= y1; y++) { const dy = y - py;
+      for (let x = x0; x <= x1; x++) { const dx = x - px;
+        const a = maskFn(shape, (dx * c + dy * s) * ihw, (-dx * s + dy * c) * ihh); if (a <= 0.003) continue;
+        const i = y * W + x; if (mask && !mask[i]) continue; const i3 = i * 3;
+        if (m === 'ink') {
+          if (water[i] > 0.05) { const ad = a * 0.2; wK[i3] += t0 * ad; wK[i3 + 1] += t1 * ad; wK[i3 + 2] += t2 * ad; }
+          else { const ad = a * 0.4 * (0.6 + 0.4 * pressure);
+            K[i3] = Math.min(K[i3] + t0 * ad, Math.max(K[i3], t0 * 1.05)); K[i3 + 1] = Math.min(K[i3 + 1] + t1 * ad, Math.max(K[i3 + 1], t1 * 1.05)); K[i3 + 2] = Math.min(K[i3 + 2] + t2 * ad, Math.max(K[i3 + 2], t2 * 1.05)); }
+          if (a > wet[i]) wet[i] = a; med[i] = MED.ink;
+        } else if (m === 'marker') {
+          const ad = a * 0.28 * (0.6 + 0.4 * pressure);
+          gK[i3] = Math.max(gK[i3], Math.min(gK[i3] + t0 * ad, t0 * 2.2)); gK[i3 + 1] = Math.max(gK[i3 + 1], Math.min(gK[i3 + 1] + t1 * ad, t1 * 2.2)); gK[i3 + 2] = Math.max(gK[i3 + 2], Math.min(gK[i3 + 2] + t2 * ad, t2 * 2.2));
+        } else if (m === 'pencil') {
+          let tooth = (base[i] - 0.3) * 1.6 + pressure * 0.6; tooth = tooth < 0.05 ? 0.05 : tooth > 1 ? 1 : tooth;
+          const ad = a * strength * 0.16 * tooth, cap = strength * 1.6;
+          gK[i3] = Math.max(gK[i3], Math.min(gK[i3] + t0 * ad, t0 * cap)); gK[i3 + 1] = Math.max(gK[i3 + 1], Math.min(gK[i3 + 1] + t1 * ad, t1 * cap)); gK[i3 + 2] = Math.max(gK[i3 + 2], Math.min(gK[i3 + 2] + t2 * ad, t2 * cap));
+        } else if (m === 'eraser') {
+          const f = 1 - a * 0.3 * (0.4 + pressure); gK[i3] *= f; gK[i3 + 1] *= f; gK[i3 + 2] *= f;
+          if (gK[i3] + gK[i3 + 1] + gK[i3 + 2] < 0.002) { gK[i3] = gK[i3 + 1] = gK[i3 + 2] = 0; }
+        }
+      } }
+    if (m === 'ink') this.activate(this.actP, x0, y0, x1, y1);
+  }
+  // ---- spray paint: gaussian cone with speckled overspray ----
+  spray(px, py, rpx, m0, colK) {
+    if (this.retired) return;
+    const W = this.W, H = this.H, R = Math.ceil(rpx * 1.25);
+    const x0 = Math.max(0, Math.floor(px - R)), x1 = Math.min(W - 1, Math.ceil(px + R)), y0 = Math.max(0, Math.floor(py - R)), y1 = Math.min(H - 1, Math.ceil(py + R));
+    if (x0 > x1 || y0 > y1) return;
+    if (this.rec) this.saveTiles(x0, y0, x1, y1);
+    const K = this.K, gK = this.gK, wK = this.wK, h = this.h, wet = this.wet, med = this.med, mask = this.mask;
+    const st = Math.max(1, Math.floor(rpx / 70)), ir2 = 1 / (rpx * rpx), c0 = colK[0], c1 = colK[1], c2 = colK[2];
+    for (let y = y0; y <= y1; y += st) for (let x = x0; x <= x1; x += st) {
+      const dx = x - px, dy = y - py, rr = (dx * dx + dy * dy) * ir2; if (rr > 1.56) continue;
+      const gs = Math.exp(-3 * rr), sp = frand();
+      const keep = rr > 0.3 ? (sp < 0.45 ? 1.8 : 0.12) : (sp < 0.85 ? 1.12 : 0.4);
+      let a = m0 * gs * keep; if (a < 0.002) continue; if (a > 1) a = 1;
+      for (let by = 0; by < st; by++) { const Y = y + by; if (Y > y1) break;
+        for (let bx = 0; bx < st; bx++) { const X = x + bx; if (X > x1) break;
+          const i = Y * W + X; if (mask && !mask[i]) continue; const i3 = i * 3;
+          K[i3] += (c0 - K[i3]) * a; K[i3 + 1] += (c1 - K[i3 + 1]) * a; K[i3 + 2] += (c2 - K[i3 + 2]) * a;
+          const cv = 1 - a; gK[i3] *= cv; gK[i3 + 1] *= cv; gK[i3 + 2] *= cv; wK[i3] *= cv; wK[i3 + 1] *= cv; wK[i3 + 2] *= cv;
+          const nh = h[i] + a * 0.004; h[i] = nh > 1 ? 1 : nh;
+          const nw = wet[i] + a * 2.2; wet[i] = nw > 2 ? 2 : nw; med[i] = MED.spray;
+          if (wet[i] > 1.65 && this.gmag > 0.5 && this.dripCool <= 0 && this.drips.length < 40 && frand() < 0.01) { this.dripCool = 0.22; this.drips.push({ x: X, y: Y, vol: 0.55 + frand() * 0.5, K: [c0, c1, c2], wc: false, ph: frand() * 10 }); wet[i] = 1.2; }
+        } }
+    }
+    this.activate(this.actP, x0, y0, x1, y1); this.markDirty(x0 - 1, y0 - 1, x1 + 1, y1 + 1);
+  }
+  // ---- simulation: watercolor flow, drying, drips ----
+  simulate(dt) {
+    if (this.retired) return;
+    this.simAcc += dt; this.dripCool -= dt;
+    if (this.simAcc >= 1 / 15) { this.waterTick(Math.min(0.2, this.simAcc)); this.simAcc = 0; }
+    if (!this.isPalette) this.dryTick();
+    if (this.drips.length) this.updateDrips(dt);
+  }
+  waterTick(dt) {
+    const W = this.W, H = this.H, wa = this.water, wK = this.wK, K = this.K, base = this.base, kd = this.kd;
+    const evap = 1 / 26, absorb = kd.absorb / 32, gran = kd.gran, TX = this.TX;
+    for (let t = 0; t < this.NT; t++) {
+      if (!this.actW[t]) continue;
+      const tx = t % TX, ty = (t / TX) | 0, X0 = tx * 64, Y0 = ty * 64, X1 = Math.min(W, X0 + 64), Y1 = Math.min(H, Y0 + 64);
+      let any = false; const rev = (this.tick & 1) === 1;
+      for (let y = Y0; y < Y1; y++) for (let xx = X0; xx < X1; xx++) {
+        const x = rev ? X1 - 1 - (xx - X0) : xx, i = y * W + x; let w = wa[i];
+        if (w <= 0) continue;
+        const i3 = i * 3;
+        if (w <= 0.0005) { K[i3] += wK[i3]; K[i3 + 1] += wK[i3 + 1]; K[i3 + 2] += wK[i3 + 2]; wK[i3] = wK[i3 + 1] = wK[i3 + 2] = 0; wa[i] = 0; continue; }
+        any = true; let edge = false;
+        for (let k = 0; k < 4; k++) {
+          const j = k === 0 ? (x > 0 ? i - 1 : -1) : k === 1 ? (x < W - 1 ? i + 1 : -1) : k === 2 ? (y > 0 ? i - W : -1) : (y < H - 1 ? i + W : -1);
+          if (j < 0) { edge = true; continue; }
+          const wj = wa[j], wi = wa[i]; if (wj <= 0.0005) edge = true;
+          if (wi <= wj) continue; if (wj <= 0.0005 && wi < 0.33) continue;
+          if (this.mask && !this.mask[j]) continue;
+          const f = (wi - wj) * 0.2 * (0.35 + 0.65 * base[j]); if (f <= 0) continue;
+          const fr = f / wi, j3 = j * 3, m0 = wK[i3] * fr, m1 = wK[i3 + 1] * fr, m2 = wK[i3 + 2] * fr;
+          wK[i3] -= m0; wK[i3 + 1] -= m1; wK[i3 + 2] -= m2; wK[j3] += m0; wK[j3 + 1] += m1; wK[j3 + 2] += m2;
+          wa[i] = wi - f;
+          if (wj <= 0.0005) { const jy = (j / W) | 0, jx = j - jy * W, tid = (jy >> 6) * TX + (jx >> 6); if (!this.actW[tid]) { this.actW[tid] = 1; } this.markTile(tid); this.med[j] = MED.water; }
+          wa[j] = wj + f;
+        }
+        w = wa[i];
+        let nw = w - dt * (evap * (edge ? 2.4 : 1) + absorb);
+        let sR = dt * (0.22 + 0.9 * gran * (1 - base[i]));
+        if (nw <= 0.03) { sR = 1; nw = 0; } if (sR > 1) sR = 1;
+        K[i3] += wK[i3] * sR; K[i3 + 1] += wK[i3 + 1] * sR; K[i3 + 2] += wK[i3 + 2] * sR;
+        const kr = 1 - sR; wK[i3] *= kr; wK[i3 + 1] *= kr; wK[i3 + 2] *= kr;
+        if (nw > 1.15 && this.gmag > 0.55 && this.dripCool <= 0 && this.drips.length < 40 && frand() < 0.01) { this.dripCool = 0.3;
+          const q = 1 / Math.max(0.2, nw); this.drips.push({ x, y, vol: Math.min(1, nw - 0.85), K: [wK[i3] * q, wK[i3 + 1] * q, wK[i3 + 2] * q], wc: true, ph: frand() * 10 }); nw = 0.95; }
+        wa[i] = nw;
+      }
+      if (!any) this.actW[t] = 0;
+      this.markTile(t);
+    }
+    this.tick++;
+  }
+  dryTick() {
+    const W = this.W, H = this.H, wet = this.wet, med = this.med, now = nowS();
+    let done = 0, scanned = 0;
+    while (done < 10 && scanned < this.NT) {
+      const t = this.dryCursor; this.dryCursor = (this.dryCursor + 1) % this.NT; scanned++;
+      if (!this.actP[t]) continue; const dt = now - this.lastT[t]; if (dt < 0.4) continue;
+      this.lastT[t] = now; done++;
+      const tx = t % this.TX, ty = (t / this.TX) | 0, X0 = tx * 64, Y0 = ty * 64, X1 = Math.min(W, X0 + 64), Y1 = Math.min(H, Y0 + 64);
+      let any = false, crossed = false;
+      for (let y = Y0; y < Y1; y++) for (let x = X0; x < X1; x++) {
+        const i = y * W + x, w = wet[i]; if (w <= 0) continue;
+        const nw = w - dt * ((DRY_RATE[med[i]] || 0.02) + (w > 1 ? 0.8 : 0));
+        if (nw <= 0) { wet[i] = 0; crossed = true; } else { wet[i] = nw; any = true; }
+      }
+      this.refT[t] += dt;
+      if (!any) { this.actP[t] = 0; this.markTile(t); }
+      else if (crossed || this.refT[t] > 2) { this.refT[t] = 0; this.markTile(t); }
+    }
+  }
+  updateDrips(dt) {
+    const W = this.W, H = this.H, gl = Math.max(1e-3, this.gmag), gx = this.gx / gl, gy = this.gy / gl;
+    for (let k = this.drips.length - 1; k >= 0; k--) {
+      const d = this.drips[k];
+      const dist = 0.035 * d.vol * this.gmag * this.ppm * dt, steps = Math.max(1, Math.ceil(dist));
+      const rr = Math.max(0.8, (0.0008 + 0.0016 * d.vol) * this.ppm);
+      for (let s = 0; s < steps; s++) {
+        d.ph += 0.15; const wob = Math.sin(d.ph) * 0.15 + (frand() - .5) * 0.1;
+        d.x += (gx - gy * wob) * dist / steps; d.y += (gy + gx * wob) * dist / steps;
+        this.dripDeposit(d, d.x, d.y, rr);
+      }
+      d.vol -= dt * (d.wc ? 0.25 : 0.32);
+      if (d.vol < 0.12 || d.x < 1 || d.y < 1 || d.x > W - 2 || d.y > H - 2) { this.dripDeposit(d, d.x, d.y, rr * 1.6, true); this.drips.splice(k, 1); }
+    }
+  }
+  dripDeposit(d, px, py, rr, bead = false) {
+    const W = this.W, H = this.H, R = Math.ceil(rr) + 1;
+    const x0 = Math.max(0, Math.floor(px - R)), x1 = Math.min(W - 1, Math.ceil(px + R)), y0 = Math.max(0, Math.floor(py - R)), y1 = Math.min(H - 1, Math.ceil(py + R));
+    const K = this.K, wK = this.wK, h = this.h, wet = this.wet, water = this.water, med = this.med;
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const dx = (x - px) / rr, dy = (y - py) / rr, q = dx * dx + dy * dy; if (q >= 1) continue;
+      const m = 1 - q, i = y * W + x, i3 = i * 3;
+      if (d.wc) { water[i] = Math.max(water[i], 0.5 * m); const a = 0.04 * m; wK[i3] += d.K[0] * a; wK[i3 + 1] += d.K[1] * a; wK[i3 + 2] += d.K[2] * a; med[i] = MED.water; }
+      else { const a = 0.5 * m; K[i3] += (d.K[0] - K[i3]) * a; K[i3 + 1] += (d.K[1] - K[i3 + 1]) * a; K[i3 + 2] += (d.K[2] - K[i3 + 2]) * a;
+        h[i] = Math.min(1, h[i] + (bead ? 0.06 : 0.012) * m); wet[i] = Math.max(wet[i], 1.1); med[i] = MED.spray; }
+    }
+    if (d.wc) this.activate(this.actW, x0, y0, x1, y1); else this.activate(this.actP, x0, y0, x1, y1);
+    this.markDirty(x0 - 1, y0 - 1, x1 + 1, y1 + 1);
+  }
+  dryAll() {
+    if (this.retired) return;
+    const N = this.N, K = this.K, wK = this.wK;
+    for (let i = 0; i < N; i++) { const i3 = i * 3; if (this.water[i] > 0 || wK[i3] || wK[i3 + 1] || wK[i3 + 2]) { K[i3] += wK[i3]; K[i3 + 1] += wK[i3 + 1]; K[i3 + 2] += wK[i3 + 2]; wK[i3] = wK[i3 + 1] = wK[i3 + 2] = 0; this.water[i] = 0; } this.wet[i] = 0; }
+    this.actW.fill(0); this.actP.fill(0); this.drips.length = 0; this.markDirty(0, 0, this.W - 1, this.H - 1);
+  }
+  // ---- display ----
+  computeTile(t) {
+    const W = this.W, H = this.H, tx = t % this.TX, ty = (t / this.TX) | 0, X0 = tx * 64, Y0 = ty * 64, X1 = Math.min(W, X0 + 64), Y1 = Math.min(H, Y0 + 64);
+    const K = this.K, gK = this.gK, wK = this.wK, h = this.h, wet = this.wet, water = this.water, base = this.base, med = this.med, col = this.colData, nrm = this.nrmData;
+    const kd = this.kd, amp = kd.amp, fill = kd.fill, shA = kd.shade, S = kd.nS, rb = kd.rough, tr = this.transparent;
+    for (let y = Y0; y < Y1; y++) for (let x = X0; x < X1; x++) {
+      const i = y * W + x, i3 = i * 3, i4 = i * 4, hh = h[i];
+      let r = K2L(K[i3] + gK[i3] + wK[i3]), g = K2L(K[i3 + 1] + gK[i3 + 1] + wK[i3 + 1]), b = K2L(K[i3 + 2] + gK[i3 + 2] + wK[i3 + 2]);
+      const cov = Math.min(1, hh * fill);
+      if (shA) { const sh = 1 - shA * (1 - base[i]) * (1 - cov); r *= sh; g *= sh; b *= sh; }
+      col[i4] = L2S(r); col[i4 + 1] = L2S(g); col[i4 + 2] = L2S(b); col[i4 + 3] = tr ? Math.min(255, hh * 15000) : 255;
+      const jl = x > 0 ? i - 1 : i, jr = x < W - 1 ? i + 1 : i, jd = y > 0 ? i - W : i, ju = y < H - 1 ? i + W : i;
+      const Tl = h[jl] + amp * base[jl] * Math.max(0, 1 - h[jl] * fill), Tr = h[jr] + amp * base[jr] * Math.max(0, 1 - h[jr] * fill);
+      const Td = h[jd] + amp * base[jd] * Math.max(0, 1 - h[jd] * fill), Tu = h[ju] + amp * base[ju] * Math.max(0, 1 - h[ju] * fill);
+      const dx = (Tr - Tl) * S, dy = (Tu - Td) * S, inv = 1 / Math.sqrt(dx * dx + dy * dy + 1);
+      nrm[i4] = (-dx * inv * .5 + .5) * 255; nrm[i4 + 1] = (-dy * inv * .5 + .5) * 255; nrm[i4 + 2] = (inv * .5 + .5) * 255;
+      let rough = rb + (DRY_ROUGH[med[i]] - rb) * cov;
+      const we = wet[i] > 1 ? 1 : wet[i]; if (we > 0) rough -= (rough - 0.16) * we * Math.min(1, cov * 3 + 0.25);
+      const wa = water[i]; if (wa > 0.01) { const gg = 0.12 + 0.5 * (1 - Math.min(1, wa * 2.5)); if (gg < rough) rough = gg; }
+      nrm[i4 + 3] = (rough < 0.1 ? 0.1 : rough) * 255;
+    }
+    return [X0, Y0, X1 - X0, Y1 - Y0];
+  }
+  flush(renderer, budget) {
+    if (this.retired) return budget;
+    if (!this.uploaded) {
+      for (let t = 0; t < this.NT; t++) this.computeTile(t);
+      this.dirtyT.fill(0); this.dirtyList.length = 0;
+      renderer.initTexture(this.colTex); renderer.initTexture(this.nrmTex); this.uploaded = true; return budget - 8;
+    }
+    if (!this.dirtyList.length || budget <= 0) return budget;
+    const rects = [];
+    while (this.dirtyList.length && rects.length < budget) { const t = this.dirtyList.pop(); this.dirtyT[t] = 0; rects.push(this.computeTile(t)); }
+    uploadRects(renderer, this.colTex, this.colData, this.W, rects);
+    uploadRects(renderer, this.nrmTex, this.nrmData, this.W, rects);
+    return budget - rects.length;
+  }
+  flushAll(renderer) { while (this.dirtyList.length) this.flush(renderer, 1e9); }
+  retire(renderer) {
+    this.flushAll(renderer);
+    for (const k of ['K', 'gK', 'wK', 'h', 'wet', 'water', 'base', 'med', 'layers', 'undoStack', 'redoStack']) this[k] = null;
+    this.drips = []; this.retired = true;
+  }
+}
+function uploadRects(renderer, tex, data, W, rects) {
+  const p = renderer.properties.get(tex);
+  if (!p.__webglTexture) { tex.needsUpdate = true; return; }
+  const gl = renderer.getContext();
+  renderer.state.bindTexture(gl.TEXTURE_2D, p.__webglTexture);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+  gl.pixelStorei(gl.UNPACK_ROW_LENGTH, W);
+  for (const [x, y, w, h] of rects) { gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, x); gl.pixelStorei(gl.UNPACK_SKIP_ROWS, y); gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data); }
+  gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0); gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0); gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
+  gl.generateMipmap(gl.TEXTURE_2D);
+}
+let lastSurf = null;
+const surfaces = [];
+
+// ---------------- artwork blanks (canvas / watercolor paper / wood panel) ----------------
+const BLANKS = [
+  { id: 'canvasS', name: 'Canvas 12×16"', kind: 'canvas', w: 0.305, h: 0.406 },
+  { id: 'canvasM', name: 'Canvas 24×30"', kind: 'canvas', w: 0.61, h: 0.762 },
+  { id: 'canvasL', name: 'Canvas 30×48"', kind: 'canvas', w: 0.762, h: 1.219 },
+  { id: 'paperS', name: 'Watercolor sketch sheet', kind: 'paper', w: 0.297, h: 0.42 },
+  { id: 'paperM', name: 'Watercolor full sheet', kind: 'paper', w: 0.56, h: 0.76 },
+  { id: 'woodS', name: 'Birch panel 12×16"', kind: 'wood', w: 0.305, h: 0.406 },
+  { id: 'woodM', name: 'Birch panel 24×30"', kind: 'wood', w: 0.61, h: 0.762 },
+];
+const birch = texPair(256, 1024, (X, Y) => woodSample(X, Y, [228, 199, 152], [188, 148, 100]), 3.0);
+const PREVIEW = {
+  canvas: new THREE.MeshStandardMaterial({ color: 0xece8de, normalMap: linen.nrm, roughness: 0.92 }),
+  paper: new THREE.MeshStandardMaterial({ color: 0xfaf8f2, roughness: 0.96 }),
+  wood: new THREE.MeshStandardMaterial({ map: birch.map, normalMap: birch.nrm, roughness: 0.72 }),
+};
+const boardMat = new THREE.MeshStandardMaterial({ color: 0x8d8a83, roughness: 0.9 });
+const tapeMat = new THREE.MeshStandardMaterial({ color: 0xe6d9b8, roughness: 0.75 });
+function buildArt(def, live) {
+  const g = new THREE.Group(), w = def.w, h = def.h; let surf = null, depth = 0.02;
+  const wb = (W, H, D, x, y, z, mat) => { const m = new THREE.Mesh(woodBox(W, H, D), mat); m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; g.add(m); return m; };
+  if (def.kind === 'canvas') {
+    depth = w < 0.4 ? 0.018 : 0.022;
+    const back = new THREE.MeshStandardMaterial({ color: 0xcdbb98, roughness: 0.95, map: linen.map });
+    const box = new THREE.Mesh(new THREE.BoxGeometry(w, h, depth), [M.linen, M.linen, M.linen, M.linen, M.linen, back]);
+    box.position.z = -depth / 2; box.castShadow = box.receiveShadow = true; g.add(box);
+    for (const [bw, bh, x, y] of [[w - 0.01, 0.04, 0, h / 2 - 0.028], [w - 0.01, 0.04, 0, -h / 2 + 0.028], [0.04, h - 0.01, w / 2 - 0.028, 0], [0.04, h - 0.01, -w / 2 + 0.028, 0]]) wb(bw, bh, 0.016, x, y, -depth - 0.008, M.oak);
+    if (h > 0.6) wb(w - 0.08, 0.035, 0.016, 0, 0, -depth - 0.008, M.oak);
+  } else if (def.kind === 'paper') {
+    depth = 0.007;
+    const board = new THREE.Mesh(new THREE.BoxGeometry(w + 0.05, h + 0.05, 0.006), boardMat); board.position.z = -0.0035; board.castShadow = board.receiveShadow = true; g.add(board);
+    for (const [tw, th, x, y] of [[w + 0.02, 0.025, 0, h / 2], [w + 0.02, 0.025, 0, -h / 2], [0.025, h + 0.02, w / 2, 0], [0.025, h + 0.02, -w / 2, 0]]) {
+      const t = new THREE.Mesh(new THREE.BoxGeometry(tw, th, 0.0004), tapeMat); t.position.set(x, y, 0.0016); t.receiveShadow = true; g.add(t); }
+  } else {
+    depth = 0.018;
+    const side = new THREE.Mesh(woodBox(w, h, depth), M.oak); side.position.z = -depth / 2 - 0.0002; side.castShadow = side.receiveShadow = true; g.add(side);
+  }
+  if (live) {
+    const ppm = Math.min(2000, Math.sqrt(1.35e6 / (w * h))), W = Math.round(w * ppm), H = Math.round(h * ppm);
+    surf = new PaintSurface({ kind: def.kind, W, H, worldW: w, worldH: h, undo: true });
+    surf.mesh.position.z = 0.0007; g.add(surf.mesh);
+  } else {
+    const geo = new THREE.PlaneGeometry(w, h); if (def.kind === 'wood') scaleUV(geo, w / 0.25, h / 1.0); else if (def.kind === 'canvas') scaleUV(geo, w / 0.05, h / 0.05);
+    const f = new THREE.Mesh(geo, PREVIEW[def.kind]); f.position.z = 0.0007; f.receiveShadow = true; g.add(f);
+  }
+  g.userData.depth = depth;
+  return { group: g, surf, def };
+}
+
+// ---------------- EASEL (H-frame studio easel, oiled oak) ----------------
+const easel = (() => {
+  const root = new THREE.Group(); scene.add(root);
+  const add = (parent, w, h, d, x, y, z, mat = M.oak) => { const m = new THREE.Mesh(woodBox(w, h, d), mat); m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; parent.add(m); return m; };
+  const knob = (parent, x, y, z, rx = Math.PI / 2) => { const k = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.019, 0.022, 20), M.brass); k.rotation.x = rx; k.position.set(x, y, z); k.castShadow = true; parent.add(k); return k; };
+  add(root, 0.065, 0.055, 0.8, -0.34, 0.0275, -0.05);
+  add(root, 0.065, 0.055, 0.8, 0.34, 0.0275, -0.05);
+  add(root, 0.75, 0.05, 0.065, 0, 0.06, -0.16);
+  for (const x of [-0.34, 0.34]) for (const z of [-0.43, 0.33]) { const f = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.008, 16), M.rubber); f.position.set(x, 0.004, z); root.add(f); }
+  for (const x of [-0.305, 0.305]) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.09, 0.07), M.steel); b.position.set(x, 0.1, 0); b.castShadow = true; root.add(b); knob(root, x + Math.sign(x) * 0.012, 0.11, 0, 0).rotation.z = Math.PI / 2; }
+  const tilt = new THREE.Group(); tilt.position.set(0, 0.11, 0); root.add(tilt); tilt.rotation.x = -0.07;
+  add(tilt, 0.048, 1.9, 0.048, -0.275, 0.95, 0);
+  add(tilt, 0.048, 1.9, 0.048, 0.275, 0.95, 0);
+  add(tilt, 0.62, 0.055, 0.05, 0, 1.92, 0);
+  add(tilt, 0.6, 0.065, 0.04, 0, 0.3, -0.035);
+  add(tilt, 0.058, 2.06, 0.036, 0, 1.0, -0.04);
+  const crank = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.006, 10, 30), M.steel); crank.position.set(0.0, 0.55, -0.075); crank.castShadow = true; tilt.add(crank);
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.03, 12), M.chrome); hub.rotation.x = Math.PI / 2; hub.position.copy(crank.position); tilt.add(hub);
+  for (let k = 0; k < 3; k++) { const sp = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.09, 0.004), M.steel); sp.position.copy(crank.position); sp.rotation.z = k * Math.PI / 3; tilt.add(sp); }
+  const holder = new THREE.Group(); holder.position.y = 0.66; tilt.add(holder);
+  add(holder, 0.7, 0.028, 0.095, 0, 0, 0.05);
+  add(holder, 0.7, 0.032, 0.012, 0, 0.026, 0.093);
+  for (const x of [-0.275, 0.275]) { add(holder, 0.08, 0.085, 0.078, x, -0.025, 0, M.walnut); knob(holder, x, -0.025, -0.05); }
+  add(holder, 0.08, 0.1, 0.06, 0, -0.03, -0.04, M.walnut);
+  // DRY button on the tray
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.032, 0.004), M.steel); plate.position.set(0.3, 0.026, 0.1015); holder.add(plate);
+  const dryBtn = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.01, 0.008, 20), new THREE.MeshStandardMaterial({ color: 0xd8582c, roughness: 0.35, emissive: 0x401000 }));
+  dryBtn.rotation.x = Math.PI / 2; dryBtn.position.set(0.287, 0.026, 0.106); holder.add(dryBtn);
+  const lab = textPlane([{ text: 'DRY', font: '700 60px Helvetica, Arial', y: 32, color: '#f4efe6' }], 0.022, 0.011, 128, 64); lab.position.set(0.313, 0.026, 0.1037); holder.add(lab);
+  // sliding top clamp
+  const clamp = new THREE.Group(); holder.add(clamp);
+  add(clamp, 0.075, 0.05, 0.06, 0, 0.02, -0.04, M.walnut);
+  add(clamp, 0.16, 0.016, 0.075, 0, 0.004, 0.035);
+  knob(clamp, 0, 0.02, -0.08);
+  return { root, tilt, holder, clamp, dryBtn, art: null };
+})();
+easel.root.position.set(0, 0, -0.78);
+function mountOnEasel(art) {
+  const g = art.group; easel.holder.add(g); g.position.set(0, 0.014 + art.def.h / 2, 0.05 + art.group.userData.depth); g.rotation.set(0, 0, 0);
+  easel.clamp.position.y = 0.014 + art.def.h + 0.012;
+  easel.holder.position.y = Math.min(easel.holder.position.y, 2.0 - art.def.h - 0.05);
+  easel.art = art; if (art.surf) { surfaces.push(art.surf); lastSurf = art.surf; }
+}
+mountOnEasel(buildArt(BLANKS[1], true));
+
+// ---------------- tool table (oil brushes, palette rest, water jar) ----------------
+const table = new THREE.Group(); scene.add(table);
+table.position.set(0.78, 0, -0.36); table.rotation.y = -0.42;
+const TABLE_TOP = 0.82;
+{
+  const top = new THREE.Mesh(woodBox(1.0, 0.035, 0.6), M.oak); top.position.y = TABLE_TOP - 0.0175; top.castShadow = top.receiveShadow = true; table.add(top);
+  for (const x of [-0.47, 0.47]) for (const z of [-0.27, 0.27]) { const l = new THREE.Mesh(new THREE.BoxGeometry(0.03, TABLE_TOP - 0.035, 0.03), M.steel); l.position.set(x, (TABLE_TOP - 0.035) / 2, z); l.castShadow = true; table.add(l); }
+  for (const z of [-0.27, 0.27]) { const r = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.03, 0.03), M.steel); r.position.set(0, 0.2, z); table.add(r); }
+  const shelf = new THREE.Mesh(woodBox(0.94, 0.02, 0.55), M.oak); shelf.position.y = 0.22; shelf.receiveShadow = true; table.add(shelf);
+  const tray = new THREE.Mesh(new RoundedBoxGeometry(0.5, 0.012, 0.29, 2, 0.004), new THREE.MeshStandardMaterial({ color: 0x2b2b2d, roughness: 0.6 })); tray.position.set(0.12, TABLE_TOP + 0.006, -0.135); tray.receiveShadow = true; table.add(tray);
+  const card = textPlane([
+    { text: 'WET CANVAS  ·  STUDIO NOTES', font: '600 30px Helvetica, Arial', y: 36, color: '#222' },
+    { text: 'Brush hand: A undo · B redo · stick turns · stick-click = spray cap', font: '22px Helvetica, Arial', y: 82, color: '#333' },
+    { text: 'Palette hand: stick walks · X palette down/up · Y swap hands', font: '22px Helvetica, Arial', y: 118, color: '#333' },
+    { text: 'Grip near any tool to pick it up · grip the easel to move, raise, tilt', font: '22px Helvetica, Arial', y: 154, color: '#333' },
+    { text: 'Grip a blank in the rack, carry it to the easel, let go to swap', font: '22px Helvetica, Arial', y: 190, color: '#333' },
+    { text: 'Spray: shake the can, squeeze trigger · touch tips to the color wheel', font: '22px Helvetica, Arial', y: 226, color: '#333' },
+    { text: 'Press the orange DRY button to dry everything instantly', font: 'italic 22px Helvetica, Arial', y: 262, color: '#555' },
+  ], 0.34, 0.085, 1024, 280, { bg: '#f4f0e6' });
+  card.position.set(0.15, TABLE_TOP + 0.0015, 0.235); card.rotation.x = -Math.PI / 2; table.add(card);
+}
+const jar = new THREE.Group(); jar.position.set(-0.36, TABLE_TOP, 0.15); table.add(jar);
+const JAR = { r: 0.04, water: 0.085 };
+const waterMat = new THREE.MeshPhysicalMaterial({ color: 0xdfe9ec, roughness: 0.05, transparent: true, opacity: 0.35, depthWrite: false });
+const glassMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.04, transparent: true, opacity: 0.18, depthWrite: false, clearcoat: 1, side: THREE.DoubleSide });
+{
+  const g = new THREE.Mesh(new THREE.CylinderGeometry(0.043, 0.041, 0.125, 40, 1, true), glassMat); g.position.y = 0.0625; jar.add(g);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.043, 0.0018, 8, 40), glassMat); rim.rotation.x = Math.PI / 2; rim.position.y = 0.125; jar.add(rim);
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.041, 0.041, 0.006, 40), glassMat); base.position.y = 0.003; jar.add(base);
+  const w = new THREE.Mesh(new THREE.CylinderGeometry(0.0405, 0.0395, JAR.water - 0.006, 40), waterMat); w.position.y = 0.006 + (JAR.water - 0.006) / 2; jar.add(w);
+}
+
+// ---------------- media cart (watercolors, acrylics, pencils, markers, ink, spray cans) ----------------
+const cart = new THREE.Group(); scene.add(cart); cart.position.set(-0.84, 0, -0.3); cart.rotation.y = 0.45;
+const CART_TOP = 0.86, CART_MID = 0.5;
+const enamel = new THREE.MeshStandardMaterial({ color: 0xf0efeb, roughness: 0.45, metalness: 0.3 });
+{
+  for (const x of [-0.39, 0.39]) for (const z of [-0.22, 0.22]) {
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.86, 12), enamel); p.position.set(x, 0.47, z); p.castShadow = true; cart.add(p);
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.018, 16), M.rubber); c.rotation.z = Math.PI / 2; c.position.set(x, 0.022, z); cart.add(c);
+    const f = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.02, 0.03), M.steel); f.position.set(x, 0.045, z); cart.add(f); }
+  for (const y of [CART_TOP, CART_MID, 0.16]) {
+    const s = new THREE.Mesh(new RoundedBoxGeometry(0.82, 0.012, 0.47, 2, 0.004), enamel); s.position.y = y - 0.006; s.castShadow = s.receiveShadow = true; cart.add(s);
+    for (const z of [-0.232, 0.232]) { const l = new THREE.Mesh(new BoxGeometryLip(0.82, 0.03, 0.006), enamel); l.position.set(0, y + 0.01, z); cart.add(l); }
+    for (const x of [-0.407, 0.407]) { const l = new THREE.Mesh(new BoxGeometryLip(0.006, 0.03, 0.47), enamel); l.position.set(x, y + 0.01, 0); cart.add(l); }
+  }
+}
+function BoxGeometryLip(w, h, d) { return new THREE.BoxGeometry(w, h, d); }
+// watercolor tin with 12 half-pans
+const WC_COLORS = [[245, 222, 40], [228, 160, 20], [232, 105, 25], [205, 38, 34], [214, 58, 110], [110, 40, 120], [40, 50, 160], [40, 120, 190], [20, 120, 95], [80, 120, 40], [178, 110, 50], [92, 58, 38]];
+const wcTin = new THREE.Group(); wcTin.position.set(-0.24, CART_TOP, 0.11); cart.add(wcTin);
+const wcPans = [];
+{
+  const blk = new THREE.MeshStandardMaterial({ color: 0x1b1c1f, roughness: 0.35, metalness: 0.6 });
+  const base = new THREE.Mesh(new RoundedBoxGeometry(0.22, 0.014, 0.095, 2, 0.004), blk); base.position.y = 0.007; base.castShadow = true; wcTin.add(base);
+  const lid = new THREE.Group(); lid.position.set(0, 0.014, -0.048); lid.rotation.x = -1.95; wcTin.add(lid);
+  const lidM = new THREE.Mesh(new RoundedBoxGeometry(0.22, 0.006, 0.095, 2, 0.002), blk); lidM.position.z = 0.0475; lid.add(lidM);
+  const inner = new THREE.Mesh(new THREE.PlaneGeometry(0.205, 0.085), new THREE.MeshStandardMaterial({ color: 0xf6f5f1, roughness: 0.5 })); inner.rotation.x = -Math.PI / 2; inner.position.set(0, 0.0031, 0.0475); lid.add(inner);
+  const panW = new THREE.MeshStandardMaterial({ color: 0xfafafa, roughness: 0.4 });
+  WC_COLORS.forEach((c, k) => {
+    const col = k % 6, row = (k / 6) | 0, x = -0.085 + col * 0.034, z = row ? 0.022 : -0.022;
+    const pan = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.008, 0.024), panW); pan.position.set(x, 0.018, z); wcTin.add(pan);
+    const cake = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.002, 0.021), new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(srgb2lin(c[0]), srgb2lin(c[1]), srgb2lin(c[2])), roughness: 0.75 }));
+    cake.position.set(x, 0.0215, z); wcTin.add(cake);
+    wcPans.push({ x, z, K: kFromSRGB(...c) });
+  });
+}
+// acrylic pots
+const ACRYLICS = [[248, 248, 245], [20, 20, 22], [200, 30, 30], [250, 205, 30], [25, 70, 180], [30, 140, 70]];
+const acrylicPots = [];
+ACRYLICS.forEach((c, k) => {
+  const g = new THREE.Group(); g.position.set(-0.33 + k * 0.052, CART_TOP, -0.13); cart.add(g);
+  const jarM = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.021, 0.042, 28, 1, true), new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.15, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }));
+  jarM.position.y = 0.021; g.add(jarM);
+  const paint = new THREE.Mesh(new THREE.CylinderGeometry(0.0205, 0.0205, 0.03, 28), new THREE.MeshPhysicalMaterial({ color: new THREE.Color().setRGB(srgb2lin(c[0]), srgb2lin(c[1]), srgb2lin(c[2])), roughness: 0.3, clearcoat: 0.5 }));
+  paint.position.y = 0.016; g.add(paint);
+  const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.023, 0.023, 0.008, 28), new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.5 })); lid.position.set(0.0, 0.004, 0.035); g.add(lid);
+  acrylicPots.push({ g, K: kFromSRGB(...c) });
+});
+// ink bottle
+const inkBottle = new THREE.Group(); inkBottle.position.set(0.03, CART_TOP, 0.12); cart.add(inkBottle);
+{
+  const b = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.026, 0.05, 6), glassMat); b.position.y = 0.025; inkBottle.add(b);
+  const ink = new THREE.Mesh(new THREE.CylinderGeometry(0.021, 0.023, 0.036, 6), new THREE.MeshPhysicalMaterial({ color: 0x050508, roughness: 0.05, clearcoat: 1 })); ink.position.y = 0.019; inkBottle.add(ink);
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.015, 0.012, 20, 1, true), glassMat); neck.position.y = 0.056; inkBottle.add(neck);
+}
+// pencil cup
+const pencilCup = new THREE.Group(); pencilCup.position.set(0.13, CART_TOP, -0.12); cart.add(pencilCup);
+{
+  const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.033, 0.1, 32, 1, true), new THREE.MeshStandardMaterial({ color: 0x2e3a33, roughness: 0.5, side: THREE.DoubleSide }));
+  cup.position.y = 0.05; cup.castShadow = true; pencilCup.add(cup);
+  const bot = new THREE.Mesh(new THREE.CylinderGeometry(0.033, 0.033, 0.004, 32), cup.material); bot.position.y = 0.002; pencilCup.add(bot);
+}
+
+// ---------------- blank rack ----------------
+const rack = new THREE.Group(); scene.add(rack); rack.position.set(1.45, 0, -1.4); rack.rotation.y = -0.85;
+const rackSlots = [];
+{
+  const add = (w, h, d, x, y, z) => { const m = new THREE.Mesh(woodBox(w, h, d), M.oak); m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; rack.add(m); };
+  add(0.08, 0.06, 0.75, -0.03, 0.03, 0); add(0.08, 0.06, 0.75, 0.38, 0.03, 0);
+  add(0.52, 0.03, 0.06, 0.18, 0.075, -0.36); add(0.52, 0.03, 0.06, 0.18, 0.075, 0.36);
+  for (let k = 0; k <= BLANKS.length; k++) { const z = -0.33 + k * 0.095; add(0.02, 0.32, 0.012, 0.42, 0.22, z - 0.047); }
+  add(0.03, 0.32, 0.75, 0.43, 0.22, 0);
+  BLANKS.forEach((def, k) => rackSlots.push({ def, z: -0.33 + k * 0.095 + 0.0, item: null }));
+}
+function fillRackSlot(slot) {
+  const art = buildArt(slot.def, false); slot.item = art;
+  rack.add(art.group); art.group.rotation.set(-0.0, -Math.PI / 2, 0.1); art.group.position.set(0.2 + 0.0, slot.def.h / 2 + 0.09, slot.z);
+  art.group.userData.slot = slot;
+}
+rackSlots.forEach(fillRackSlot);
+const rackLabel = textPlane([{ text: 'BLANKS — canvas · watercolor paper · birch panels', font: '600 34px Helvetica, Arial', y: 32, color: '#2b2a28' }], 0.5, 0.032, 1024, 64, { bg: '#efe9dc' });
+rackLabel.position.set(0.18, 0.075, 0.395); rack.add(rackLabel);
+
+// ---------------- leaning wall (finished paintings wait here until Stage 4) ----------------
+let leanIndex = 0; const leaned = [];
+function leanAgainstWall(art) {
+  const k = leanIndex++ % 11, x = -5.6 + k * 1.12, h = art.def.h, d = art.group.userData.depth, ang = -0.2;
+  if (leaned[k]) { leaned[k].group.removeFromParent(); }
+  leaned[k] = art; art.group.removeFromParent(); scene.add(art.group);
+  art.group.rotation.set(ang, 0, 0);
+  art.group.position.set(x, Math.cos(-ang) * h / 2 + 0.004, -8 + 0.015 + d + Math.sin(-ang) * h / 2);
+}
+
+// ---------------- brick mural wall ----------------
+const mural = (() => {
+  const W = 1200, H = 1040, w = 3.0, h = 2.6;
+  const surf = new PaintSurface({ kind: 'brick', W, H, worldW: w, worldH: h, undo: true });
+  const g = new THREE.Group(); g.position.set(-6.975, h / 2, -0.5); g.rotation.y = Math.PI / 2; scene.add(g);
+  surf.mesh.position.z = 0.0; g.add(surf.mesh);
+  const edge = new THREE.MeshStandardMaterial({ color: 0x8e4a37, roughness: 0.95 });
+  for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.BoxGeometry(0.025, h, 0.03), edge); e.position.set(s * (w / 2 + 0.0125), 0, -0.012); e.castShadow = true; g.add(e); }
+  const cap = new THREE.Mesh(new THREE.BoxGeometry(w + 0.08, 0.045, 0.07), new THREE.MeshStandardMaterial({ color: 0xb9b5ac, roughness: 0.9, map: concrete.map })); cap.position.set(0, h / 2 + 0.022, 0.005); cap.castShadow = true; g.add(cap);
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 0.008), M.steel); plate.position.set(w / 2 + 0.12, -0.05, 0.004); g.add(plate);
+  const btn = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.015, 0.01, 20), new THREE.MeshStandardMaterial({ color: 0xd8582c, roughness: 0.35, emissive: 0x401000 })); btn.rotation.x = Math.PI / 2; btn.position.set(w / 2 + 0.12, -0.04, 0.012); g.add(btn);
+  const lab = textPlane([{ text: 'DRY', font: '700 60px Helvetica, Arial', y: 32, color: '#f4efe6' }], 0.04, 0.02, 128, 64); lab.position.set(w / 2 + 0.12, -0.072, 0.0085); g.add(lab);
+  const sign = textPlane([{ text: 'MURAL WALL', font: '300 64px Helvetica Neue, Helvetica, Arial', y: 40, color: '#3a3936', spacing: 18 }], 0.6, 0.075, 1024, 128); sign.position.set(0, h / 2 + 0.12, 0.01); g.add(sign);
+  surfaces.push(surf);
+  const sp = new THREE.SpotLight(0xffe4c0, 34, 0, 0.75, 0.6, 2); sp.position.set(-4.6, ROOM.h - 0.12, -0.5); sp.target.position.set(-7, 1.3, -0.5); scene.add(sp, sp.target);
+  return { surf, group: g, dryBtn: btn };
+})();
+
+// ---------------- still life on a plinth ----------------
+{
+  const g = new THREE.Group(); g.position.set(-1.2, 0, -1.95); scene.add(g);
+  const pl = new THREE.Mesh(new RoundedBoxGeometry(0.55, 0.95, 0.55, 3, 0.006), new THREE.MeshStandardMaterial({ color: 0xf2f0eb, roughness: 0.85 }));
+  pl.position.y = 0.475; pl.castShadow = pl.receiveShadow = true; g.add(pl);
+  const cloth = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.42, 30, 20), new THREE.MeshStandardMaterial({ color: 0x8c2f2a, roughness: 0.9, side: THREE.DoubleSide }));
+  { const p = cloth.geometry.attributes.position; for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i); let z = Math.sin(x * 22) * 0.006 + Math.sin(y * 30 + x * 9) * 0.004;
+      if (x > 0.27) z -= (x - 0.27) * 1.5; p.setZ(i, z); } cloth.geometry.computeVertexNormals(); }
+  cloth.rotation.x = -Math.PI / 2; cloth.position.set(0.03, 0.952, 0.02); cloth.receiveShadow = cloth.castShadow = true; g.add(cloth);
+  const lathe = (pts, mat) => { const m = new THREE.Mesh(new THREE.LatheGeometry(pts.map(p => new THREE.Vector2(p[0], p[1])), 48), mat); m.castShadow = m.receiveShadow = true; return m; };
+  const ceramic = new THREE.MeshPhysicalMaterial({ color: 0xece6da, roughness: 0.3, clearcoat: 0.8, clearcoatRoughness: 0.15, side: THREE.DoubleSide });
+  const bowl = lathe([[0, 0], [0.04, 0], [0.042, 0.004], [0.075, 0.03], [0.1, 0.07], [0.104, 0.074], [0.1, 0.074], [0.072, 0.034], [0.038, 0.01], [0, 0.009]], ceramic);
+  bowl.position.set(-0.07, 0.955, 0.07); g.add(bowl);
+  const apple = (col1, col2, x, y, z, s) => {
+    const geo = new THREE.SphereGeometry(0.038 * s, 32, 24), p = geo.attributes.position, cols = [];
+    const c1 = new THREE.Color(col1), c2 = new THREE.Color(col2), tmp = new THREE.Color();
+    for (let i = 0; i < p.count; i++) { let X = p.getX(i), Y = p.getY(i), Z = p.getZ(i); const r = 0.038 * s, ny = Y / r;
+      const sc = 1 + 0.07 * (1 - ny * ny); X *= sc; Z *= sc; const d = (X * X + Z * Z) / (r * r); Y -= Math.sign(Y) * 0.16 * r * Math.exp(-d / 0.08); Y *= 0.92;
+      p.setXYZ(i, X, Y, Z); const n = tnoise(Math.atan2(Z, X) * 6 + 20, ny * 4 + 20, 64, 64); tmp.copy(c1).lerp(c2, Math.min(1, Math.max(0, (n - 0.35) * 1.6 + (ny < 0 ? 0.25 : 0)))); cols.push(tmp.r, tmp.g, tmp.b); }
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3)); geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.38, clearcoat: 0.5, clearcoatRoughness: 0.3 }));
+    m.position.set(x, y, z); m.rotation.set(rand() * .3, rand() * 6, rand() * .3); m.castShadow = m.receiveShadow = true; g.add(m);
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.0018, 0.0025, 0.022, 6), new THREE.MeshStandardMaterial({ color: 0x4a3420 })); stem.position.y = 0.03 * s; stem.rotation.z = 0.3; m.add(stem);
+  };
+  apple(0xa3161a, 0xe0b23a, -0.09, 1.0, 0.07, 1); apple(0xb8231c, 0xd9c24a, -0.035, 0.997, 0.085, 0.95); apple(0x8fae2e, 0xd7cf55, -0.065, 1.03, 0.04, 0.95);
+  apple(0xb01d18, 0xe2b440, 0.08, 0.988, 0.13, 1.0);
+  const pear = lathe([[0, 0], [0.03, 0.004], [0.042, 0.025], [0.038, 0.055], [0.024, 0.08], [0.018, 0.1], [0.012, 0.112], [0, 0.116]], new THREE.MeshPhysicalMaterial({ color: 0xc9b04a, roughness: 0.45, clearcoat: 0.3 }));
+  pear.position.set(0.12, 0.952, 0.0); pear.rotation.z = -0.12; g.add(pear);
+  const vase = lathe([[0, 0], [0.045, 0], [0.06, 0.04], [0.068, 0.1], [0.055, 0.17], [0.03, 0.22], [0.026, 0.26], [0.034, 0.285], [0.03, 0.288], [0.022, 0.27], [0, 0.27]], new THREE.MeshPhysicalMaterial({ color: 0x1d3f6e, roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.08 }));
+  vase.position.set(0.07, 0.952, -0.12); g.add(vase);
+  // gallery bench
+  const bench = new THREE.Group(); bench.position.set(0, 0, 3.2); scene.add(bench);
+  const bt = new THREE.Mesh(woodBox(1.8, 0.06, 0.45), M.walnut); bt.position.y = 0.44; bt.castShadow = bt.receiveShadow = true; bench.add(bt);
+  for (const x of [-0.75, 0.75]) { const l = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.41, 0.4), M.steel); l.position.set(x, 0.205, 0); l.castShadow = true; bench.add(l); }
+}
+
+// ---------------- TOOLS ----------------
+const BRISTLE_HOG = 0xe2d3ad, BRISTLE_SYN = 0xc8873b, BRISTLE_SABLE = 0x5b3a22;
+const BRUSH_DEFS = [
+  { id: 'detail', name: 'Detail #0', shape: 'round', width: 0.0028, thick: 0.0028, len: 0.011, handle: 0x1c1c1f, bristle: BRISTLE_SYN, opacity: 0.8, impasto: 0.018, ridge: 0.008, flatten: 0.03, pickup: 0.14, gaps: 0.02 },
+  { id: 'round4', name: 'Round #4', shape: 'round', width: 0.006, thick: 0.006, len: 0.017, handle: 0x7d1717, bristle: BRISTLE_SYN, opacity: 0.65, impasto: 0.035, ridge: 0.015, flatten: 0.05, pickup: 0.2, gaps: 0.06 },
+  { id: 'round10', name: 'Round #10', shape: 'round', width: 0.012, thick: 0.012, len: 0.027, handle: 0x7d1717, bristle: BRISTLE_HOG, opacity: 0.6, impasto: 0.045, ridge: 0.02, flatten: 0.05, pickup: 0.24, gaps: 0.1 },
+  { id: 'flat6', name: 'Flat #6', shape: 'flat', width: 0.011, thick: 0.0028, len: 0.018, handle: 0x15305f, bristle: BRISTLE_HOG, opacity: 0.62, impasto: 0.055, ridge: 0.035, flatten: 0.06, pickup: 0.24, gaps: 0.12 },
+  { id: 'flat12', name: 'Flat #12', shape: 'flat', width: 0.021, thick: 0.0042, len: 0.025, handle: 0x15305f, bristle: BRISTLE_HOG, opacity: 0.62, impasto: 0.06, ridge: 0.04, flatten: 0.06, pickup: 0.26, gaps: 0.14 },
+  { id: 'filbert8', name: 'Filbert #8', shape: 'filbert', width: 0.015, thick: 0.0045, len: 0.024, handle: 0x2b4a2a, bristle: BRISTLE_HOG, opacity: 0.58, impasto: 0.05, ridge: 0.025, flatten: 0.06, pickup: 0.26, gaps: 0.1 },
+  { id: 'fan6', name: 'Fan #6', shape: 'fan', width: 0.034, thick: 0.0016, len: 0.026, handle: 0x3b2a1a, bristle: BRISTLE_HOG, opacity: 0.28, impasto: 0.012, ridge: 0.004, flatten: 0.12, pickup: 0.38, gaps: 0.42 },
+  { id: 'house', name: 'House 2"', shape: 'flat', width: 0.05, thick: 0.009, len: 0.04, handle: 0x9a7a55, bristle: BRISTLE_HOG, opacity: 0.6, impasto: 0.06, ridge: 0.03, flatten: 0.08, pickup: 0.22, gaps: 0.16, handleLen: 0.15, handleR: 0.0105 },
+  { id: 'wc8', name: 'Sable Round #8', wc: true, shape: 'round', width: 0.0085, thick: 0.0085, len: 0.027, handle: 0x101012, bristle: BRISTLE_SABLE, opacity: 1, impasto: 0, ridge: 0, flatten: 0, pickup: 0.3, gaps: 0.02 },
+  { id: 'wcmop', name: 'Wash Mop', wc: true, shape: 'round', width: 0.022, thick: 0.022, len: 0.033, handle: 0x101012, bristle: 0x3a2a1e, opacity: 1, impasto: 0, ridge: 0, flatten: 0, pickup: 0.3, gaps: 0.02, handleLen: 0.17, handleR: 0.0062 },
+];
+const tools = [];
+const makeState = () => ({ tipK: [0.01, 0.01, 0.01], resK: [0.01, 0.01, 0.01], loaded: false, load: 0, medium: 'oil', conc: 0, water: 0, surf: null, lx: 0, ly: 0, lp: 0, ang: 0, fang: 0, pressure: 1, cap: 'fat', strokeSurf: null });
+const toolMedium = t => t.def.kind === 'brush' ? t.state.medium : t.def.kind === 'pen' ? 'ink' : t.def.kind;
+const linColor = k => new THREE.Color().setRGB(RofK(k[0]), RofK(k[1]), RofK(k[2]));
+function updateToolColor(t) { if (!t.colorMats) return; const c = linColor(t.state.tipK); for (const m of t.colorMats) m.color.copy(c); }
+
+function buildBrush(def) {
+  def.kind = 'brush';
+  const g = new THREE.Group();
+  const hr = def.handleR || 0.0048, hl = def.handleLen || 0.21, ferLen = def.shape === 'round' ? 0.022 + def.width * 0.4 : 0.026;
+  const hp = [[0, 0], [hr * 0.98, 0], [hr * 1.15, hl * 0.12], [hr * 1.26, hl * 0.28], [hr * 0.96, hl * 0.6], [hr * 0.62, hl * 0.92], [hr * 0.46, hl * 0.985], [0, hl]];
+  const hg = new THREE.LatheGeometry(hp.map(p => new THREE.Vector2(p[0], p[1])), 20); hg.rotateX(Math.PI / 2);
+  const handle = new THREE.Mesh(hg, new THREE.MeshPhysicalMaterial({ color: def.handle, roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.12 })); handle.castShadow = true; g.add(handle);
+  const rb = hr * 0.98;
+  const fp = [[rb, 0], [rb * 1.03, 0.002], [rb * 0.93, 0.006], [rb * 0.99, 0.0085], [rb, ferLen * 0.6], [rb, ferLen]];
+  const fg = new THREE.LatheGeometry(fp.map(p => new THREE.Vector2(p[0], p[1])), 24); fg.rotateX(-Math.PI / 2);
+  { const p = fg.attributes.position; const fx = def.shape === 'round' ? def.width / 2 * 1.08 / rb : def.width / 2 * 1.05 / rb, fy = def.shape === 'round' ? fx : Math.max(def.thick / 2 * 1.6, 0.0012) / rb;
+    for (let i = 0; i < p.count; i++) { const t = Math.pow(Math.min(1, -p.getZ(i) / ferLen), 1.5); p.setX(i, p.getX(i) * (1 + (fx - 1) * t)); p.setY(i, p.getY(i) * (1 + (fy - 1) * t)); } fg.computeVertexNormals(); }
+  const ferrule = new THREE.Mesh(fg, def.wc ? M.brass : M.chrome); ferrule.castShadow = true; g.add(ferrule);
+  const L = def.len, n = 12, pts = [];
+  for (let k = 0; k <= n; k++) { const t = k / n; let r;
+    if (def.shape === 'round') r = (1 + (def.wc ? 0.35 : 0.22) * Math.sin(Math.PI * Math.min(1, t * 1.3))) * Math.pow(1 - t, def.wc ? 1.3 : 0.9) + 0.02 * (1 - t);
+    else if (def.shape === 'flat') r = t < 0.8 ? 1 : 1 - Math.pow((t - 0.8) / 0.2, 2) * 0.22;
+    else if (def.shape === 'filbert') r = Math.sqrt(Math.max(0, 1 - Math.pow(Math.max(0, (t - 0.45) / 0.55), 2)));
+    else r = 0.35 + 0.65 * t;
+    pts.push(new THREE.Vector2(Math.max(0.00001, r * def.width / 2), t * L)); }
+  if (def.shape === 'flat' || def.shape === 'fan') pts.push(new THREE.Vector2(0.00001, L));
+  const tg = new THREE.LatheGeometry(pts, 18); tg.rotateX(-Math.PI / 2);
+  const sy = def.shape === 'round' ? 1 : Math.max(0.06, def.thick / def.width);
+  tg.scale(1, sy, 1); tg.translate(0, 0, -ferLen + 0.001);
+  const tp = tg.attributes.position, tT = new Float32Array(tp.count);
+  for (let i = 0; i < tp.count; i++) tT[i] = Math.min(1, Math.max(0, (-tp.getZ(i) - ferLen + 0.001) / L));
+  tg.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(tp.count * 3), 3));
+  const tuft = new THREE.Mesh(tg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55 })); tuft.castShadow = true; g.add(tuft);
+  const bristles = new Float32Array(128); const ph = rand() * 100;
+  for (let i = 0; i < 128; i++) { let v = 0.62 + 0.38 * tnoise(i * 0.45 + ph, 3.3, 256, 256); if (rand() < def.gaps) v *= 0.12; bristles[i] = v; }
+  for (let i = 0; i < 128; i++) { const e = Math.min(i, 127 - i); if (e < 6) bristles[i] *= 0.55 + e * 0.075; }
+  const b = { def, kind: 'brush', group: g, tuft, tuftBase: Float32Array.from(tp.array), tuftT: tT, ferLen, bristleColor: new THREE.Color(def.bristle), bristles,
+    tipLocal: new THREE.Vector3(0, 0, -ferLen - L), baseLocal: new THREE.Vector3(0, 0, -ferLen), grabLocal: new THREE.Vector3(0, 0, 0.06),
+    travel: L * 0.55, eps: 0.0015, state: makeState(), prevTip: new THREE.Vector3(), lastDeform: -1, inHand: null };
+  if (def.wc) b.state.medium = 'water';
+  updateTuftColor(b); return b;
+}
+const _c = new THREE.Color(), _pc = new THREE.Color();
+function updateTuftColor(b) {
+  if (!b.tuft) return;
+  const st = b.state, col = b.tuft.geometry.attributes.color, T = b.tuftT;
+  _pc.setRGB(RofK(st.tipK[0]), RofK(st.tipK[1]), RofK(st.tipK[2]));
+  const vis = st.medium === 'water' ? Math.min(1, st.conc) * 0.85 : st.loaded ? 1 : Math.min(1, st.load * 1.6);
+  const wetDark = st.medium === 'water' ? 1 - 0.25 * st.water : 1;
+  for (let i = 0; i < T.length; i++) { const t = T[i]; let w = Math.min(1, Math.max(0, (t - 0.22) / 0.45)); w = w * w * (3 - 2 * w) * vis;
+    _c.copy(b.bristleColor).lerp(_pc, w).multiplyScalar(wetDark); col.setXYZ(i, _c.r, _c.g, _c.b); }
+  col.needsUpdate = true;
+}
+function deformTuft(b, d, bx, by) {
+  if (!b.tuft) return;
+  const key = Math.round(d * 4000) + Math.round(bx * 50) * 1e5 + Math.round(by * 50) * 1e8;
+  if (key === b.lastDeform) return; b.lastDeform = key;
+  const L = b.def.len, amt = Math.min(d, L * 0.85), splay = Math.min(1.3, amt / L * 2.4);
+  const pos = b.tuft.geometry.attributes.position.array, base = b.tuftBase, T = b.tuftT, flat = b.def.shape !== 'round';
+  for (let i = 0; i < T.length; i++) { const t = T[i], t2 = t * t, j = i * 3, sc = 1 + splay * t2;
+    pos[j] = base[j] * sc + bx * amt * 1.15 * t2;
+    pos[j + 1] = base[j + 1] * (flat ? 1 + splay * t2 * 0.35 : sc) + by * amt * 1.15 * t2;
+    pos[j + 2] = base[j + 2] + amt * Math.pow(t, 1.4); }
+  b.tuft.geometry.attributes.position.needsUpdate = true; b.tuft.geometry.computeVertexNormals();
+}
+function zCyl(rTop, rBot, len, seg, zCenter, forward = true) { const g = new THREE.CylinderGeometry(rTop, rBot, len, seg); g.rotateX(forward ? -Math.PI / 2 : Math.PI / 2); g.translate(0, 0, zCenter); return g; }
+function buildPencil(def) {
+  def.kind = 'pencil'; def.shape = 'round'; def.spread = 0.3;
+  const g = new THREE.Group(), R = 0.0037;
+  const bodyMat = new THREE.MeshPhysicalMaterial({ color: def.body, roughness: 0.35, clearcoat: 0.7 });
+  const body = new THREE.Mesh(zCyl(R, R, 0.16, 6, 0.06), bodyMat); body.castShadow = true; g.add(body);
+  const wood = new THREE.Mesh(zCyl(0.0008, R * 0.97, 0.018, 12, -0.029), new THREE.MeshStandardMaterial({ color: 0xdcb487, roughness: 0.8 })); g.add(wood);
+  const leadMat = new THREE.MeshStandardMaterial({ color: linColor(def.K), roughness: def.colored ? 0.6 : 0.3, metalness: def.colored ? 0 : 0.5 });
+  const lead = new THREE.Mesh(zCyl(0.0001, 0.0008, 0.004, 10, -0.04), leadMat); g.add(lead);
+  if (!def.colored) { const fer = new THREE.Mesh(zCyl(R * 1.05, R * 1.05, 0.009, 16, 0.1445), M.chrome); g.add(fer);
+    const er = new THREE.Mesh(zCyl(R * 0.98, R * 0.98, 0.008, 16, 0.153), new THREE.MeshStandardMaterial({ color: 0xe48c96, roughness: 0.8 })); g.add(er); }
+  else { const end = new THREE.Mesh(zCyl(R, R, 0.004, 6, 0.142), new THREE.MeshStandardMaterial({ color: linColor(def.K), roughness: 0.5 })); g.add(end); }
+  const t = { def, kind: 'pencil', group: g, tipLocal: new THREE.Vector3(0, 0, -0.042), baseLocal: new THREE.Vector3(0, 0, -0.02), grabLocal: new THREE.Vector3(0, 0, 0.05),
+    travel: 0.004, eps: 0.0008, state: makeState(), prevTip: new THREE.Vector3(), colorMats: def.colored ? [leadMat, bodyMat] : [leadMat], inHand: null };
+  t.state.tipK = def.K.slice(); return t;
+}
+function buildMarker(def) {
+  def.kind = 'marker'; def.spread = def.tip === 'brush' ? 1.4 : 0.15; def.shape = def.tip === 'chisel' ? 'flat' : 'round';
+  const g = new THREE.Group(), white = new THREE.MeshPhysicalMaterial({ color: 0xf4f4f2, roughness: 0.35, clearcoat: 0.4 });
+  const inkMat = new THREE.MeshStandardMaterial({ color: linColor(def.K), roughness: 0.45 });
+  const tipMat = new THREE.MeshStandardMaterial({ color: linColor(def.K), roughness: 0.85 });
+  g.add(new THREE.Mesh(zCyl(0.0075, 0.0075, 0.12, 24, 0.045), white));
+  g.add(new THREE.Mesh(zCyl(0.0077, 0.0077, 0.02, 24, 0.06), inkMat));
+  g.add(new THREE.Mesh(zCyl(0.0079, 0.0079, 0.026, 24, 0.112), inkMat));
+  g.add(new THREE.Mesh(zCyl(0.003, 0.0075, 0.012, 24, -0.021), white));
+  let tipZ;
+  if (def.tip === 'fine') { g.add(new THREE.Mesh(zCyl(0.0004, 0.0014, 0.008, 12, -0.031), tipMat)); tipZ = -0.035; }
+  else if (def.tip === 'chisel') { const c = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.002, 0.008), tipMat); c.position.z = -0.031; c.rotation.x = 0.0; g.add(c); tipZ = -0.035; }
+  else { g.add(new THREE.Mesh(zCyl(0.0003, 0.0022, 0.013, 14, -0.0335), tipMat)); tipZ = -0.04; }
+  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  const t = { def, kind: 'marker', group: g, tipLocal: new THREE.Vector3(0, 0, tipZ), baseLocal: new THREE.Vector3(0, 0, -0.015), grabLocal: new THREE.Vector3(0, 0, 0.04),
+    travel: def.tip === 'brush' ? 0.008 : 0.004, eps: 0.0008, state: makeState(), prevTip: new THREE.Vector3(), colorMats: [inkMat, tipMat], inHand: null };
+  t.state.tipK = def.K.slice(); return t;
+}
+function buildEraser(def) {
+  def.kind = 'eraser'; def.shape = 'flat'; def.width = 0.024; def.thick = 0.012; def.spread = 0.1;
+  const g = new THREE.Group();
+  const e = new THREE.Mesh(new RoundedBoxGeometry(0.024, 0.012, 0.055, 2, 0.002), new THREE.MeshStandardMaterial({ color: 0xf6f6f2, roughness: 0.7 })); e.castShadow = true; g.add(e);
+  const sl = new THREE.Mesh(new THREE.BoxGeometry(0.0248, 0.0128, 0.03), new THREE.MeshStandardMaterial({ color: 0x2f5aa8, roughness: 0.8 })); sl.position.z = 0.009; g.add(sl);
+  return { def, kind: 'eraser', group: g, tipLocal: new THREE.Vector3(0, 0, -0.0275), baseLocal: new THREE.Vector3(0, 0, -0.01), grabLocal: new THREE.Vector3(0, 0, 0),
+    travel: 0.006, eps: 0.0008, state: makeState(), prevTip: new THREE.Vector3(), inHand: null };
+}
+function buildPen(def) {
+  def.kind = 'pen'; def.shape = 'round'; def.width = 0.0007; def.spread = 1.6;
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(zCyl(0.0047, 0.0036, 0.16, 20, 0.07, false), new THREE.MeshPhysicalMaterial({ color: 0x15110e, roughness: 0.3, clearcoat: 1 })));
+  g.add(new THREE.Mesh(zCyl(0.0042, 0.0042, 0.012, 20, -0.016), M.chrome));
+  const nib = new THREE.Mesh(zCyl(0.0002, 0.0022, 0.015, 4, -0.0295), M.brass); nib.scale.y = 0.25; g.add(nib);
+  const inkMat = new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.1 }); const ink = new THREE.Mesh(zCyl(0.0001, 0.0009, 0.005, 6, -0.034), inkMat); ink.scale.y = 0.3; g.add(ink);
+  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  const t = { def, kind: 'pen', group: g, tipLocal: new THREE.Vector3(0, 0, -0.037), baseLocal: new THREE.Vector3(0, 0, -0.016), grabLocal: new THREE.Vector3(0, 0, 0.05),
+    travel: 0.004, eps: 0.0008, state: makeState(), prevTip: new THREE.Vector3(), colorMats: [inkMat], inHand: null };
+  t.state.tipK = kFromSRGB(12, 12, 18); return t;
+}
+function buildSpray(def) {
+  def.kind = 'spray';
+  const g = new THREE.Group();
+  const alu = new THREE.MeshStandardMaterial({ color: 0xc9ccd0, roughness: 0.28, metalness: 1 });
+  const labelMat = new THREE.MeshPhysicalMaterial({ color: linColor(def.K), roughness: 0.4, clearcoat: 0.8 });
+  const capMat = new THREE.MeshStandardMaterial({ color: linColor(def.K), roughness: 0.5 });
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.033, 0.033, 0.17, 32), alu); body.position.y = -0.01; g.add(body);
+  const label = new THREE.Mesh(new THREE.CylinderGeometry(0.0333, 0.0333, 0.12, 32, 1, true), labelMat); label.position.y = -0.015; g.add(label);
+  const sh = new THREE.Mesh(new THREE.CylinderGeometry(0.019, 0.033, 0.03, 32), alu); sh.position.y = 0.09; g.add(sh);
+  const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.014, 0.008, 20), alu); cup.position.y = 0.109; g.add(cup);
+  const act = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.014, 18), capMat); act.position.y = 0.12; g.add(act);
+  const hole = new THREE.Mesh(new THREE.CircleGeometry(0.0013, 10), new THREE.MeshBasicMaterial({ color: 0x050505 })); hole.position.set(0, 0.122, -0.0081); hole.rotation.y = Math.PI; g.add(hole);
+  const bot = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.003, 8, 32), alu); bot.rotation.x = Math.PI / 2; bot.position.y = -0.095; g.add(bot);
+  const mist = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 24, 1, true), new THREE.MeshBasicMaterial({ color: linColor(def.K), transparent: true, opacity: 0.07, depthWrite: false, side: THREE.DoubleSide }));
+  mist.geometry.translate(0, -0.5, 0); mist.geometry.rotateX(Math.PI / 2); mist.position.set(0, 0.122, -0.009); mist.visible = false; g.add(mist);
+  g.traverse(o => { if (o.isMesh && o !== mist) o.castShadow = true; });
+  const t = { def, kind: 'spray', group: g, tipLocal: new THREE.Vector3(0, 0.122, -0.009), baseLocal: new THREE.Vector3(0, 0.122, 0.01), grabLocal: new THREE.Vector3(0, 0, 0),
+    state: makeState(), prevTip: new THREE.Vector3(), colorMats: [labelMat, capMat, mist.material], mist, inHand: null, vel: new THREE.Vector3(), lastPos: new THREE.Vector3(), shakeT: 0 };
+  t.state.tipK = def.K.slice(); t.state.pressure = 0.6; return t;
+}
+function registerTool(t, parent, pos, rot) {
+  t.restParent = parent; t.restPos = pos.clone(); t.restRot = rot.clone(); parent.add(t.group); t.group.position.copy(pos); t.group.rotation.copy(rot); tools.push(t); return t;
+}
+function returnTool(t) {
+  t.group.removeFromParent(); t.restParent.add(t.group); t.group.position.copy(t.restPos); t.group.rotation.copy(t.restRot); t.inHand = null;
+  deformTuft(t, 0, 0, 0); if (t.mist) t.mist.visible = false;
+}
+// oil brushes on the table tray, watercolor brushes on the cart
+const brushes = BRUSH_DEFS.map(buildBrush);
+brushes.forEach((b, i) => {
+  const def = b.def;
+  if (!def.wc) registerTool(b, table, new THREE.Vector3(0.12 + (def.handleLen ? 0.03 : 0), TABLE_TOP + 0.012 + (def.handleR || 0.0048) * 1.25, -0.255 + i * 0.034), new THREE.Euler(0, Math.PI / 2, 0));
+  else registerTool(b, cart, new THREE.Vector3(-0.2, CART_TOP + 0.006 + (def.handleR || 0.0048) * 1.25, -0.035 + (i - 8) * 0.03), new THREE.Euler(0, Math.PI / 2, 0));
+});
+const PENCILS = [
+  { id: 'hb', name: 'HB pencil', K: kFromSRGB(62, 62, 66), strength: 0.55, width: 0.0011, body: 0xe9b824 },
+  { id: '4b', name: '4B pencil', K: kFromSRGB(48, 48, 52), strength: 0.85, width: 0.0014, body: 0x2a6b3a },
+  { id: '8b', name: '8B pencil', K: kFromSRGB(34, 34, 38), strength: 1.2, width: 0.0019, body: 0x1d1d1f },
+  { id: 'cpr', name: 'Red pencil', colored: true, K: kFromSRGB(196, 34, 40), strength: 0.8, width: 0.0013, body: 0xb51e24 },
+  { id: 'cpb', name: 'Blue pencil', colored: true, K: kFromSRGB(32, 70, 172), strength: 0.8, width: 0.0013, body: 0x1f4fae },
+  { id: 'cpg', name: 'Green pencil', colored: true, K: kFromSRGB(40, 130, 60), strength: 0.8, width: 0.0013, body: 0x23803e },
+];
+PENCILS.forEach((d, k) => { const a = k / PENCILS.length * Math.PI * 2;
+  registerTool(buildPencil(d), pencilCup, new THREE.Vector3(Math.cos(a) * 0.017, 0.162, Math.sin(a) * 0.017), new THREE.Euler(Math.PI / 2 + Math.cos(a) * 0.12, 0, -Math.sin(a) * 0.12)); });
+[{ id: 'mkf', name: 'Fine liner', tip: 'fine', width: 0.0011, K: kFromSRGB(18, 18, 20) },
+ { id: 'mkc', name: 'Chisel marker', tip: 'chisel', width: 0.006, thick: 0.0018, K: kFromSRGB(232, 70, 40) },
+ { id: 'mkb', name: 'Brush marker', tip: 'brush', width: 0.0028, K: kFromSRGB(40, 96, 205) }].forEach((d, k) =>
+  registerTool(buildMarker(d), cart, new THREE.Vector3(0.22 + k * 0.03, CART_TOP + 0.008, 0.07), new THREE.Euler(0, 0, 0)));
+registerTool(buildEraser({ id: 'eraser', name: 'Eraser' }), cart, new THREE.Vector3(0.33, CART_TOP + 0.006, 0.15), new THREE.Euler(Math.PI / 2, 0, 0.3));
+registerTool(buildPen({ id: 'pen', name: 'Dip pen' }), cart, new THREE.Vector3(0.1, CART_TOP + 0.005, 0.02), new THREE.Euler(0, Math.PI / 2, 0));
+const SPRAYS = [[245, 245, 242], [18, 18, 20], [214, 32, 36], [252, 210, 20], [24, 92, 214], [36, 168, 82]];
+SPRAYS.forEach((c, k) => registerTool(buildSpray({ id: 'spray' + k, name: 'Spray can', K: kFromSRGB(...c) }), cart, new THREE.Vector3(-0.3 + k * 0.12, CART_MID + 0.095, 0.0), new THREE.Euler(0, rand() * 6, 0)));
+
+// ---------------- PALETTE (oak kidney palette, thumb hole, color wheel) ----------------
+const PAL = { w: 0.40, h: 0.30, depth: 0.006, hole: new THREE.Vector2(-0.122, 0.0), holeR: 0.017, wheel: new THREE.Vector2(0.105, -0.07), wheelR: 0.045, bar: new THREE.Vector2(0.168, -0.02) };
+const paletteSurf = new PaintSurface({ kind: 'palette', W: 400, H: 300, worldW: PAL.w, worldH: PAL.h, transparent: true, isPalette: true }); surfaces.push(paletteSurf);
+const palette = (() => {
+  const g = new THREE.Group();
+  const outline = []; for (let k = 0; k < 96; k++) { const th = k / 96 * Math.PI * 2; let d = th - Math.PI; const r = 1 - 0.2 * Math.exp(-(d * d) / 0.09);
+    outline.push(new THREE.Vector2(PAL.w / 2 * r * Math.cos(th), PAL.h / 2 * r * Math.sin(th) * (1 + 0.06 * Math.cos(th)))); }
+  const shape = new THREE.Shape(outline);
+  const hole = new THREE.Path(); hole.absarc(PAL.hole.x, PAL.hole.y, PAL.holeR, 0, Math.PI * 2, true); shape.holes.push(hole);
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: PAL.depth, bevelEnabled: true, bevelThickness: 0.0015, bevelSize: 0.0018, bevelSegments: 3, curveSegments: 48 });
+  geo.rotateX(-Math.PI / 2);
+  const pm = M.walnut.clone(); pm.map = woodDark.map.clone(); pm.map.repeat.set(4, 1); pm.map.needsUpdate = true; pm.normalMap = woodDark.nrm.clone(); pm.normalMap.repeat.set(4, 1); pm.normalMap.needsUpdate = true;
+  pm.color = new THREE.Color(0xd8b48a); pm.clearcoat = 0.6;
+  const mesh = new THREE.Mesh(geo, pm); mesh.castShadow = true; mesh.receiveShadow = true; g.add(mesh);
+  // paint layer
+  paletteSurf.mesh.rotation.x = -Math.PI / 2; paletteSurf.mesh.position.set(0, PAL.depth + 0.0022, 0); paletteSurf.mesh.renderOrder = 2; g.add(paletteSurf.mesh);
+  // mask (inside kidney, not in thumb hole / wheel / bar)
+  const W = paletteSurf.W, H = paletteSurf.H, mask = new Uint8Array(W * H);
+  const inPoly = (x, y, poly) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const a = poly[i], b = poly[j]; if ((a.y > y) !== (b.y > y) && x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x) c = !c; } return c; };
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const sx = (x + 0.5) / W * PAL.w - PAL.w / 2, sy = (y + 0.5) / H * PAL.h - PAL.h / 2;
+    let ok = inPoly(sx * 1.03, sy * 1.03, outline) && Math.hypot(sx - PAL.hole.x, sy - PAL.hole.y) > PAL.holeR + 0.004
+      && Math.hypot(sx - PAL.wheel.x, sy - PAL.wheel.y) > PAL.wheelR + 0.006 && !(Math.abs(sx - PAL.bar.x) < 0.012 && Math.abs(sy - PAL.bar.y) < 0.05);
+    mask[y * W + x] = ok ? 1 : 0; }
+  paletteSurf.mask = mask;
+  // color wheel puck
+  const puck = new THREE.Mesh(new THREE.CylinderGeometry(PAL.wheelR + 0.003, PAL.wheelR + 0.003, 0.004, 48), new THREE.MeshStandardMaterial({ color: 0xf3f3f1, roughness: 0.4 }));
+  puck.position.set(PAL.wheel.x, PAL.depth + 0.002, -PAL.wheel.y); puck.castShadow = true; g.add(puck);
+  const wc = document.createElement('canvas'); wc.width = wc.height = 256; const wctx = wc.getContext('2d'), wid = wctx.createImageData(256, 256);
+  for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) { const dx = (x - 127.5) / 127.5, dy = -(y - 127.5) / 127.5, r = Math.hypot(dx, dy), i = (y * 256 + x) * 4;
+    if (r > 1) { wid.data[i + 3] = 0; continue; } let hh = Math.atan2(dy, dx) / (Math.PI * 2); if (hh < 0) hh += 1; const c = hsv2rgb(hh, Math.min(1, r * 1.02), 1);
+    wid.data[i] = c[0]; wid.data[i + 1] = c[1]; wid.data[i + 2] = c[2]; wid.data[i + 3] = 255; }
+  wctx.putImageData(wid, 0, 0);
+  const wt = new THREE.CanvasTexture(wc); wt.colorSpace = THREE.SRGBColorSpace;
+  const wheel = new THREE.Mesh(new THREE.CircleGeometry(PAL.wheelR, 64), new THREE.MeshStandardMaterial({ map: wt, roughness: 0.35, transparent: true }));
+  wheel.rotation.x = -Math.PI / 2; wheel.position.set(PAL.wheel.x, PAL.depth + 0.0042, -PAL.wheel.y); g.add(wheel);
+  const marker = new THREE.Mesh(new THREE.RingGeometry(0.0035, 0.0052, 24), new THREE.MeshBasicMaterial({ color: 0x111111 })); marker.position.z = 0.0004; wheel.add(marker);
+  // value bar
+  const bc = document.createElement('canvas'); bc.width = 8; bc.height = 128; const bt = new THREE.CanvasTexture(bc); bt.colorSpace = THREE.SRGBColorSpace;
+  const bar = new THREE.Mesh(new THREE.PlaneGeometry(0.014, 0.09), new THREE.MeshStandardMaterial({ map: bt, roughness: 0.4 }));
+  bar.rotation.x = -Math.PI / 2; bar.position.set(PAL.bar.x, PAL.depth + 0.0035, -PAL.bar.y); g.add(bar);
+  const barBase = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.003, 0.094), new THREE.MeshStandardMaterial({ color: 0xf3f3f1, roughness: 0.4 })); barBase.position.set(PAL.bar.x, PAL.depth + 0.0015, -PAL.bar.y); g.add(barBase);
+  const barMarker = new THREE.Mesh(new THREE.PlaneGeometry(0.018, 0.0025), new THREE.MeshBasicMaterial({ color: 0x111111 })); barMarker.position.z = 0.0005; bar.add(barMarker);
+  return { group: g, wheel, marker, bar, barCanvas: bc, barTex: bt, barMarker, mesh };
+})();
+const picker = { h: 0.0, s: 0.0, v: 1.0 };
+function redrawBar() {
+  const g = palette.barCanvas.getContext('2d'), gr = g.createLinearGradient(0, 128, 0, 0), c = hsv2rgb(picker.h, picker.s, 1);
+  gr.addColorStop(0, '#000'); gr.addColorStop(1, `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`); g.fillStyle = gr; g.fillRect(0, 0, 8, 128); palette.barTex.needsUpdate = true;
+  palette.marker.position.set(Math.cos(picker.h * Math.PI * 2) * picker.s * PAL.wheelR, Math.sin(picker.h * Math.PI * 2) * picker.s * PAL.wheelR, 0.0004);
+  palette.barMarker.position.y = (picker.v - 0.5) * 0.09;
+}
+redrawBar();
+// squeezed oil paint blobs around the rim
+const PAINTS = [
+  ['Titanium White', [246, 245, 240]], ['Cadmium Yellow', [250, 200, 18]], ['Yellow Ochre', [198, 146, 58]], ['Cadmium Red', [214, 38, 28]],
+  ['Alizarin Crimson', [140, 16, 38]], ['Burnt Sienna', [136, 66, 36]], ['Ultramarine', [32, 42, 158]], ['Phthalo Green', [8, 96, 78]], ['Ivory Black', [22, 22, 22]],
+];
+{
+  const S = paletteSurf, W = S.W, H = S.H;
+  PAINTS.forEach(([, rgb], k) => {
+    const th = Math.PI * (0.9 - k * (0.72 / (PAINTS.length - 1))), cx = PAL.w / 2 * 0.8 * Math.cos(th), cy = PAL.h / 2 * 0.78 * Math.sin(th);
+    const pk = kFromSRGB(...rgb), R = 0.0125 * S.ppm, px = (cx / PAL.w + 0.5) * W, py = (cy / PAL.h + 0.5) * H, sw = rand() * 6;
+    for (let y = Math.floor(py - R * 1.6); y <= py + R * 1.6; y++) for (let x = Math.floor(px - R * 1.6); x <= px + R * 1.6; x++) {
+      if (x < 0 || y < 0 || x >= W || y >= H) continue; const dx = (x - px) / R, dy = (y - py) / R, a = Math.atan2(dy, dx);
+      const r = Math.hypot(dx, dy) / (1 + 0.18 * Math.sin(a * 3 + sw) + 0.1 * Math.sin(a * 5 + sw * 2)); if (r >= 1) continue;
+      const i = y * W + x; if (!S.mask[i]) continue;
+      const swirl = 0.08 * Math.sin(r * 14 + a * 2 + sw) * (1 - r);
+      S.h[i] = Math.max(S.h[i], 0.6 * Math.pow(1 - r * r, 0.65) + swirl); S.wet[i] = 1; S.med[i] = 1; S.K[i * 3] = pk[0]; S.K[i * 3 + 1] = pk[1]; S.K[i * 3 + 2] = pk[2]; }
+  });
+  S.markDirty(0, 0, W - 1, H - 1);
+}
+const PAL_REST = { pos: new THREE.Vector3(0.12, TABLE_TOP + 0.0015, 0.06), rot: new THREE.Euler(0, 0.1, 0) };
+function paletteToTable() { palette.group.removeFromParent(); table.add(palette.group); palette.group.position.copy(PAL_REST.pos); palette.group.rotation.copy(PAL_REST.rot); palette.group.scale.set(1, 1, 1); paletteHeld = null; }
+let paletteHeld = null;
+paletteToTable();
+
+// ---------------- HANDS (white, paint-smudged, no arms) ----------------
+function genSkinTex() {
+  const S = 512, c = document.createElement('canvas'); c.width = c.height = S; const g = c.getContext('2d');
+  g.fillStyle = '#f3f0eb'; g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 900; i++) { g.fillStyle = `rgba(${220 + rand() * 25},${205 + rand() * 20},${198 + rand() * 20},0.05)`; g.beginPath(); g.arc(rand() * S, rand() * S, 2 + rand() * 9, 0, 7); g.fill(); }
+  const paints = ['#c7261d', '#1f2f8f', '#e0b21a', '#0f5e4c', '#8a4426', '#6b1530', '#2a2a2a', '#3d6fb5'];
+  for (let i = 0; i < 13; i++) { const col = paints[(rand() * paints.length) | 0]; g.save(); g.translate(rand() * S, rand() * S); g.rotate(rand() * 6); g.scale(1, 0.25 + rand() * 0.5);
+    const r = 10 + rand() * 30, gr = g.createRadialGradient(0, 0, 0, 0, 0, r); gr.addColorStop(0, col); gr.addColorStop(0.55, col + 'cc'); gr.addColorStop(1, col + '00');
+    g.fillStyle = gr; g.globalAlpha = 0.55 + rand() * 0.35; g.beginPath(); g.arc(0, 0, r, 0, 7); g.fill(); g.restore(); }
+  for (let i = 0; i < 9; i++) { g.strokeStyle = paints[(rand() * paints.length) | 0]; g.globalAlpha = 0.45 + rand() * 0.3; g.lineWidth = 2 + rand() * 6; g.lineCap = 'round';
+    const x = rand() * S, y = rand() * S; g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + (rand() - .5) * 80, y + (rand() - .5) * 80, x + (rand() - .5) * 120, y + (rand() - .5) * 120); g.stroke(); }
+  for (let i = 0; i < 260; i++) { g.globalAlpha = 0.7; g.fillStyle = paints[(rand() * paints.length) | 0]; g.beginPath(); g.arc(rand() * S, rand() * S, 0.6 + rand() * 1.8, 0, 7); g.fill(); }
+  g.globalAlpha = 1; const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; return t;
+}
+const skinTex = genSkinTex();
+const skinNrm = texPair(256, 256, (X, Y) => { const n = tfbm(X * 32, Y * 32, 32, 32, 2), f = tnoise(X * 96, Y * 96, 96, 96); return [0, 0, 0, n * 0.6 + f * 0.4]; }, 1.4).nrm;
+const skinMat = new THREE.MeshPhysicalMaterial({ color: 0xf6f3ef, map: skinTex, normalMap: skinNrm, normalScale: new THREE.Vector2(0.35, 0.35), roughness: 0.58, sheen: 0.45, sheenRoughness: 0.55, sheenColor: new THREE.Color(0xffe9e0), clearcoat: 0.05 });
+const nailMat = new THREE.MeshPhysicalMaterial({ color: 0xf7ece8, roughness: 0.22, clearcoat: 0.8, clearcoatRoughness: 0.15 });
+
+function taperedCapsule(r1, r2, len, radial = 16) {
+  const pts = [], n = 7;
+  for (let i = 0; i <= n; i++) { const a = -Math.PI / 2 + (i / n) * Math.PI / 2; pts.push(new THREE.Vector2(Math.max(1e-5, Math.cos(a) * r1), Math.sin(a) * r1)); }
+  for (let i = 1; i <= n; i++) { const a = (i / n) * Math.PI / 2; pts.push(new THREE.Vector2(Math.max(1e-5, Math.cos(a) * r2), len + Math.sin(a) * r2)); }
+  const g = new THREE.LatheGeometry(pts, radial); g.rotateX(-Math.PI / 2); return g;
+}
+const FINGERS = [
+  { x: -0.026, y: 0.001, z: -0.086, spread: 0.07, len: [0.042, 0.025, 0.021], r: [0.0099, 0.0089, 0.0080, 0.0071] },
+  { x: -0.0055, y: 0.002, z: -0.09, spread: 0.0, len: [0.046, 0.029, 0.023], r: [0.0101, 0.0091, 0.0082, 0.0073] },
+  { x: 0.0135, y: 0.0005, z: -0.087, spread: -0.06, len: [0.043, 0.027, 0.022], r: [0.0095, 0.0086, 0.0078, 0.0069] },
+  { x: 0.0305, y: -0.003, z: -0.079, spread: -0.14, len: [0.034, 0.02, 0.019], r: [0.0085, 0.0077, 0.0069, 0.0062] },
+];
+function buildHand() {
+  const root = new THREE.Group();
+  const palmG = new RoundedBoxGeometry(0.078, 0.027, 0.094, 5, 0.0125);
+  { const p = palmG.attributes.position; for (let i = 0; i < p.count; i++) { let x = p.getX(i), y = p.getY(i), z = p.getZ(i); const w = (z + 0.047) / 0.094;
+      x *= 1 - 0.17 * w; y *= 1 - 0.12 * w; const q = 1 - Math.min(1, (x / 0.04) * (x / 0.04));
+      if (y < 0) y += 0.0045 * q * (1 - Math.abs(w - 0.5)); else y += 0.003 * q; p.setXYZ(i, x, y, z); } palmG.computeVertexNormals(); }
+  const palm = new THREE.Mesh(palmG, skinMat); palm.position.set(0.003, 0, -0.047); root.add(palm);
+  const blob = (x, y, z, sx, sy, sz, ry = 0) => { const m = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), skinMat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.rotation.y = ry; root.add(m); return m; };
+  blob(-0.02, -0.007, -0.03, 0.019, 0.0145, 0.033, 0.35);   // thenar (thumb muscle)
+  blob(0.03, -0.006, -0.038, 0.013, 0.012, 0.034);          // hypothenar
+  blob(0.003, 0.0, -0.002, 0.031, 0.0128, 0.016);           // rounded wrist end — no arm
+  for (const f of FINGERS) blob(f.x, f.y + 0.003, f.z + 0.004, f.r[0] * 1.08, f.r[0] * 0.9, f.r[0] * 1.1); // knuckles
+  const fingers = FINGERS.map(def => {
+    const j0 = new THREE.Group(); j0.position.set(def.x, def.y, def.z); j0.rotation.order = 'YXZ'; root.add(j0);
+    let parent = j0; const joints = [j0];
+    for (let s = 0; s < 3; s++) {
+      const seg = new THREE.Mesh(taperedCapsule(def.r[s], def.r[s + 1], def.len[s]), skinMat); seg.scale.set(1.06, 0.9, 1); parent.add(seg);
+      if (s < 2) { const nj = new THREE.Group(); nj.position.z = -def.len[s]; parent.add(nj); parent = nj; joints.push(nj); }
+      else { const r = def.r[3]; const nail = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 10), nailMat); nail.scale.set(r * 0.82, r * 0.26, def.len[2] * 0.36); nail.position.set(0, r * 0.74, -def.len[2] * 0.62); nail.rotation.x = 0.06; parent.add(nail); }
+    }
+    return { joints, spread: def.spread };
+  });
+  // thumb
+  const tb = new THREE.Group(); tb.position.set(-0.025, -0.006, -0.02); tb.rotation.order = 'YXZ'; root.add(tb);
+  const tl = [0.046, 0.033, 0.027], trr = [0.0128, 0.0114, 0.0104, 0.0091];
+  let tp = tb; const tj = [tb];
+  for (let s = 0; s < 3; s++) {
+    const seg = new THREE.Mesh(taperedCapsule(trr[s], trr[s + 1], tl[s]), skinMat); seg.scale.set(1.08, 0.92, 1); tp.add(seg);
+    if (s < 2) { const nj = new THREE.Group(); nj.position.z = -tl[s]; tp.add(nj); tp = nj; tj.push(nj); }
+    else { const r = trr[3]; const nail = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 10), nailMat); nail.scale.set(r * 0.85, r * 0.27, tl[2] * 0.38); nail.position.set(0, r * 0.74, -tl[2] * 0.6); tp.add(nail); }
+  }
+  root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return { root, fingers, thumb: tj };
+}
+// pose = [index c1,c2,c3, middle.., ring.., pinky.., thumbYaw, thumbPitch, thumbRoll, thumbC1, thumbC2]
+const POSES = {
+  relaxed: [0.25, 0.32, 0.18, 0.3, 0.36, 0.2, 0.36, 0.4, 0.22, 0.42, 0.42, 0.22, 0.55, -0.2, 0.8, 0.15, 0.12],
+  fist:    [1.45, 1.55, 1.0, 1.5, 1.6, 1.05, 1.5, 1.6, 1.05, 1.45, 1.5, 1.0, 0.1, -0.7, 1.2, 0.55, 0.45],
+  pen:     [0.55, 0.8, 0.35, 0.8, 1.0, 0.6, 1.25, 1.35, 0.85, 1.35, 1.35, 0.85, 0.25, -0.5, 1.0, 0.3, 0.3],
+  palette: [0.95, 0.75, 0.4, 1.0, 0.8, 0.42, 1.05, 0.85, 0.45, 1.1, 0.85, 0.45, 0.55, 0.45, 0.6, 0.05, 0.05],
+};
+function applyPose(hv, p) {
+  for (let f = 0; f < 4; f++) { const fg = hv.fingers[f]; fg.joints[0].rotation.set(-p[f * 3], fg.spread * (1 - Math.min(1, p[f * 3]) * 0.6), 0); fg.joints[1].rotation.x = -p[f * 3 + 1]; fg.joints[2].rotation.x = -p[f * 3 + 2]; }
+  hv.thumb[0].rotation.set(p[13], p[12], p[14]); hv.thumb[1].rotation.x = -p[15]; hv.thumb[2].rotation.x = -p[16];
+}
+
+POSES.can = [0.45, 0.55, 0.3, 1.15, 1.0, 0.55, 1.2, 1.0, 0.55, 1.25, 1.0, 0.5, 0.35, -0.45, 1.0, 0.3, 0.2];
+
+// ---------------- XR controllers → hands ----------------
+const hands = { left: null, right: null };
+function makeHandRig(grip, side) {
+  const mirror = new THREE.Group(); if (side === 'left') mirror.scale.x = -1; grip.add(mirror);
+  const mount = new THREE.Group(); mount.rotation.z = -Math.PI / 2; mount.position.set(0.028, 0.004, 0.045); mirror.add(mount);
+  const hv = buildHand(); mount.add(hv.root);
+  const brushMount = new THREE.Group(); brushMount.position.set(-0.016, 0.026, -0.05); brushMount.rotation.x = -0.2; mirror.add(brushMount);
+  const canMount = new THREE.Group(); canMount.position.set(-0.022, -0.08, 0.0); mirror.add(canMount);
+  const paletteMount = new THREE.Group(); paletteMount.position.set(-0.004, 0.047, -0.035);
+  paletteMount.quaternion.setFromEuler(new THREE.Euler(0.5, Math.PI, 0, 'XYZ')); mirror.add(paletteMount);
+  const pose = POSES.relaxed.slice(); applyPose(hv, pose);
+  return { grip, side, mirror, hv, brushMount, canMount, paletteMount, pose, gamepad: null, prev: [], tool: null, grab: null, carry: null, squeezePrev: false, vel: new THREE.Vector3(), lastPos: new THREE.Vector3(), hasLast: false };
+}
+for (let i = 0; i < 2; i++) {
+  const grip = renderer.xr.getControllerGrip(i); rig.add(grip);
+  grip.addEventListener('connected', e => {
+    const side = e.data.handedness === 'left' ? 'left' : 'right';
+    if (grip.userData.hand) { grip.userData.hand.gamepad = e.data.gamepad; return; }
+    const h = makeHandRig(grip, side); h.gamepad = e.data.gamepad; grip.userData.hand = h; hands[side] = h;
+    equipHands();
+  });
+  grip.addEventListener('disconnected', () => { const h = grip.userData.hand; if (!h) return; if (h.tool) { endStroke(h.tool); returnTool(h.tool); } h.tool = null; if (paletteHeld === h) paletteToTable(); if (h.carry) returnCarry(h);
+    h.mirror.removeFromParent(); hands[h.side] = null; grip.userData.hand = null; });
+}
+const other = s => s === 'left' ? 'right' : 'left';
+let paletteHidden = false;
+function equipHands() {
+  if (!renderer.xr.isPresenting) return;
+  const bh = hands[settings.dominant], oh = hands[other(settings.dominant)];
+  if (bh && !bh.tool) { if (oh && oh.tool) { const t = oh.tool; oh.tool = null; attachTool(t, bh); } else attachTool(brushes[2], bh); }
+  if (oh && !paletteHidden && paletteHeld !== oh) attachPalette(oh);
+}
+function attachTool(t, h) { t.group.removeFromParent(); (t.kind === 'spray' ? h.canMount : h.brushMount).add(t.group); t.group.position.set(0, 0, 0); t.group.rotation.set(0, 0, 0); t.inHand = h; h.tool = t; }
+function attachPalette(h) { palette.group.removeFromParent(); h.paletteMount.add(palette.group); palette.group.position.set(-PAL.hole.x, -PAL.depth / 2, PAL.hole.y); palette.group.rotation.set(0, 0, 0); paletteHeld = h; }
+function swapHands() {
+  const bh = hands[settings.dominant]; const t = bh && bh.tool; if (t) { endStroke(t); bh.tool = null; }
+  if (paletteHeld) paletteToTable();
+  settings.dominant = other(settings.dominant); saveSettings();
+  const nb = hands[settings.dominant]; if (nb) attachTool(t || brushes[2], nb);
+  equipHands();
+}
+renderer.xr.addEventListener('sessionstart', () => { document.getElementById('info').style.display = 'none'; initAudio(); rig.position.set(0, 0, 0.02); camera.position.set(0, 0, 0); setTimeout(equipHands, 50); });
+renderer.xr.addEventListener('sessionend', () => {
+  document.getElementById('info').style.display = '';
+  for (const s of ['left', 'right']) { const h = hands[s]; if (h && h.tool) { endStroke(h.tool); returnTool(h.tool); h.tool = null; } if (h && h.carry) returnCarry(h); }
+  paletteToTable(); camera.position.set(0, 1.55, 0); camera.rotation.set(0, 0, 0); setHiss(0); setScrape(0, 1000);
+});
+function pulse(h, v, ms) { try { const a = h.gamepad && h.gamepad.hapticActuators && h.gamepad.hapticActuators[0]; if (a && a.pulse) { const r = a.pulse(Math.min(1, v), ms); if (r && r.catch) r.catch(() => {}); } } catch (e) {} }
+
+// ---------------- AUDIO (synthesised: spray hiss, can rattle, bristle scrape, dryer whoosh) ----------------
+let actx = null, hissG = null, scrapeG = null, scrapeF = null, noiseBuf = null;
+function initAudio() {
+  if (actx) { actx.resume && actx.resume(); return; }
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    noiseBuf = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const mk = (type, f, q) => { const s = actx.createBufferSource(); s.buffer = noiseBuf; s.loop = true; const fl = actx.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q; const g = actx.createGain(); g.gain.value = 0; s.connect(fl); fl.connect(g); g.connect(actx.destination); s.start(); return [g, fl]; };
+    [hissG] = mk('highpass', 3200, 0.5); [scrapeG, scrapeF] = mk('bandpass', 1500, 0.8);
+  } catch (e) { actx = null; }
+}
+function setHiss(v) { if (hissG) hissG.gain.setTargetAtTime(v, actx.currentTime, 0.03); }
+function setScrape(v, f) { if (scrapeG) { scrapeG.gain.setTargetAtTime(v, actx.currentTime, 0.04); scrapeF.frequency.setTargetAtTime(f, actx.currentTime, 0.05); } }
+function burst(freq, q, dur, vol, type = 'bandpass') {
+  if (!actx) return; const s = actx.createBufferSource(); s.buffer = noiseBuf; const f = actx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+  const g = actx.createGain(), t = actx.currentTime; g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+  s.connect(f); f.connect(g); g.connect(actx.destination); s.start(t, Math.random()); s.stop(t + dur + 0.05);
+}
+const rattle = () => { burst(2600 + Math.random() * 900, 7, 0.06, 0.35); setTimeout(() => burst(3100, 9, 0.04, 0.2), 25); };
+
+// ---------------- painting control ----------------
+function endStroke(t) { const st = t.state; if (st.surf) { st.surf.endStroke(); st.surf = null; } if (st.strokeSurf) { st.strokeSurf.endStroke(); st.strokeSurf = null; } }
+function halfW(def, p) { if (def.kind === 'brush') return def.width / 2 * (0.32 + 0.95 * p); return def.width / 2 * (1 + (def.spread || 0) * p); }
+function halfH(def, p) {
+  if (def.kind === 'brush') { if (def.shape === 'round') return halfW(def, p); if (def.shape === 'filbert') return halfW(def, p) * 0.42 * (0.7 + p); return def.thick / 2 * (1 + 2.6 * p) + def.width * 0.02; }
+  if (def.shape === 'flat') return def.thick / 2 * (1 + (def.spread || 0) * 0.5 * p); return halfW(def, p);
+}
+function paintContact(t, surf, lx, ly, pressure, flatAng) {
+  const st = t.state, px = (lx / surf.worldW + 0.5) * surf.W, py = (ly / surf.worldH + 0.5) * surf.H, def = t.def, round = def.shape === 'round';
+  if (st.surf !== surf) {
+    endStroke(t); st.surf = surf; surf.beginStroke();
+    st.lx = px; st.ly = py; st.lp = pressure; st.fang = flatAng;
+    surf.stamp(px, py, halfW(def, pressure), halfH(def, pressure), round ? st.ang : flatAng, pressure, t); return;
+  }
+  const dx = px - st.lx, dy = py - st.ly, dist = Math.hypot(dx, dy);
+  const step = Math.max(0.5, halfW(def, pressure) * surf.ppm * (def.kind === 'brush' ? 0.16 : 0.3));
+  if (dist < step && Math.abs(pressure - st.lp) < 0.12) return;
+  const n = Math.max(1, Math.min(90, Math.ceil(dist / step)));
+  if (dist > 0.3) st.ang = Math.atan2(dy, dx) + Math.PI / 2;
+  let da = flatAng - st.fang; da = Math.atan2(Math.sin(da), Math.cos(da));
+  for (let k = 1; k <= n; k++) { const f = k / n, p = st.lp + (pressure - st.lp) * f;
+    surf.stamp(st.lx + dx * f, st.ly + dy * f, halfW(def, p), halfH(def, p), round ? st.ang : st.fang + da * f, p, t); }
+  st.lx = px; st.ly = py; st.lp = pressure; st.fang = flatAng;
+}
+function applyPicked(t) {
+  const c = hsv2rgb(picker.h, picker.s, picker.v), k = kFromSRGB(c[0], c[1], c[2]), st = t.state;
+  st.tipK = k.slice(); st.resK = k.slice();
+  if (t.kind === 'brush') { if (t.def.wc) { st.conc = 1; st.water = Math.max(st.water, 0.7); } else { st.loaded = true; st.load = 1; } updateTuftColor(t); }
+  else updateToolColor(t);
+}
+function pickWheel(lx, ly) { const r = Math.hypot(lx, ly) / PAL.wheelR; if (r > 1) return false; let h = Math.atan2(ly, lx) / (Math.PI * 2); if (h < 0) h += 1; picker.h = h; picker.s = Math.min(1, r * 1.02); redrawBar(); return true; }
+function pickBar(ly) { picker.v = Math.min(1, Math.max(0, ly / 0.09 + 0.5)); redrawBar(); }
+function rinse(t) {
+  const st = t.state;
+  if (t.kind === 'brush') {
+    if (t.def.wc) { st.water = 1; st.conc *= 0.9; if (st.conc < 0.02) st.conc = 0; }
+    else { st.loaded = false; st.load = 0; }
+    updateTuftColor(t);
+    waterMat.color.lerp(linColor(st.tipK), 0.01); waterMat.opacity = Math.min(0.75, waterMat.opacity + 0.0015);
+  }
+}
+const loadedFrom = (t, K, medium) => { const st = t.state; st.tipK = K.slice(); st.resK = K.slice(); if (medium === 'water') { st.conc = 1; st.water = Math.max(st.water, 0.6); } else { st.loaded = true; st.load = 1; st.medium = medium; } updateTuftColor(t); };
+
+// ---------------- dry buttons ----------------
+let dryCool = 0;
+function pressDry(surf, btn) {
+  if (dryCool > 0 || !surf) return; dryCool = 1.0; surf.dryAll(); burst(600, 0.6, 0.9, 0.5, 'lowpass');
+  btn.position.z -= 0.003; setTimeout(() => btn.position.z += 0.003, 180);
+}
+
+// ---------------- blanks: carry & swap ----------------
+function returnCarry(h) { const it = h.carry; h.carry = null; if (!it) return; const slot = it.group.userData.slot; it.group.removeFromParent(); slot.item = null; fillRackSlot(slot); }
+function releaseCarry(h) {
+  const it = h.carry; h.carry = null; if (!it) return;
+  h.grip.getWorldPosition(handPos); easel.holder.localToWorld(tmp.set(0, 0.35, 0.06));
+  const slot = it.group.userData.slot;
+  if (handPos.distanceTo(tmp) < 0.65) {
+    it.group.removeFromParent();
+    const old = easel.art; if (old) { if (old.surf) { old.surf.retire(renderer); const ix = surfaces.indexOf(old.surf); if (ix >= 0) surfaces.splice(ix, 1); } leanAgainstWall(old); }
+    mountOnEasel(buildArt(slot.def, true)); pulse(h, 0.5, 60); burst(300, 1, 0.25, 0.4, 'lowpass');
+  } else { it.group.removeFromParent(); }
+  slot.item = null; fillRackSlot(slot);
+}
+
+// ---------------- XR per-frame ----------------
+const V = () => new THREE.Vector3();
+const tipW = V(), baseW = V(), tl = V(), bl = V(), handPos = V(), tmp = V(), tmp2 = V(), tmp3 = V(), fwd = V();
+const mInv = new THREE.Matrix4(), m3 = new THREE.Matrix3(), box3 = new THREE.Box3(), qtmp = new THREE.Quaternion();
+let snapReady = true;
+function btn(h, i) { const b = h.gamepad && h.gamepad.buttons[i]; return b ? b.pressed : false; }
+function bval(h, i) { const b = h.gamepad && h.gamepad.buttons[i]; return b ? b.value : 0; }
+function edge(h, i) { const p = btn(h, i), was = h.prev[i]; h.prev[i] = p; return p && !was; }
+function handYawPitch(h) { fwd.set(0, 0, -1).applyQuaternion(h.grip.getWorldQuaternion(qtmp)); return { yaw: Math.atan2(-fwd.x, -fwd.z), pitch: Math.asin(Math.max(-1, Math.min(1, fwd.y))) }; }
+function localOf(obj, world, out) { mInv.copy(obj.matrixWorld).invert(); return out.copy(world).applyMatrix4(mInv); }
+
+function updateXR(dt) {
+  const bh = hands[settings.dominant], oh = hands[other(settings.dominant)];
+  if (bh) { if (edge(bh, 4)) { const s = lastSurf || (easel.art && easel.art.surf); if (s && s.undo()) pulse(bh, 0.3, 30); } if (edge(bh, 5)) { const s = lastSurf || (easel.art && easel.art.surf); if (s && s.redo()) pulse(bh, 0.3, 30); }
+    if (edge(bh, 3) && bh.tool && bh.tool.kind === 'spray') { const st = bh.tool.state; st.cap = st.cap === 'fat' ? 'skinny' : 'fat'; pulse(bh, 0.25, 25); burst(4000, 3, 0.03, 0.2); } }
+  if (oh) {
+    if (edge(oh, 4)) { paletteHidden = !paletteHidden; if (paletteHidden) paletteToTable(); else attachPalette(oh); pulse(oh, 0.2, 20); }
+    if (edge(oh, 5)) { swapHands(); return; }
+  }
+  if (oh && oh.gamepad) { const ax = oh.gamepad.axes; const sx = ax[2] || 0, sy = ax[3] || 0;
+    if (Math.hypot(sx, sy) > 0.15) { camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize(); const right = tmp.set(-fwd.z, 0, fwd.x);
+      const sp = 1.5 * dt; rig.position.addScaledVector(fwd, -sy * sp).addScaledVector(right, sx * sp);
+      rig.position.x = Math.max(ROOM.x0 + 0.4, Math.min(ROOM.x1 - 0.4, rig.position.x)); rig.position.z = Math.max(ROOM.z0 + 0.4, Math.min(ROOM.z1 - 0.4, rig.position.z)); } }
+  if (bh && bh.gamepad) { const sx = bh.gamepad.axes[2] || 0;
+    if (Math.abs(sx) > 0.7 && snapReady) { snapReady = false; const ang = -Math.sign(sx) * Math.PI / 6; camera.getWorldPosition(tmp2);
+      rig.position.sub(tmp2).applyAxisAngle(THREE.Object3D.DEFAULT_UP, ang).add(tmp2); rig.rotation.y += ang; }
+    if (Math.abs(sx) < 0.3) snapReady = true; }
+  for (const h of [bh, oh]) { if (!h) continue;
+    const trig = bval(h, 0), sq = bval(h, 1); let target;
+    if (h.tool && h.tool.kind === 'spray') { target = POSES.can.slice(); target[0] += trig * 0.35; target[1] += trig * 0.4; }
+    else if (h.tool) { target = POSES.pen.slice(); target[1] += trig * 0.15; target[2] += trig * 0.1; }
+    else if (paletteHeld === h) target = POSES.palette.slice();
+    else { const f = Math.max(sq, h.grab || h.carry ? 1 : 0); target = POSES.relaxed.map((v, i) => v + (POSES.fist[i] - v) * f); for (let i = 0; i < 3; i++) target[i] = POSES.relaxed[i] + (POSES.fist[i] - POSES.relaxed[i]) * Math.max(trig, f); }
+    for (let i = 0; i < 17; i++) h.pose[i] += (target[i] - h.pose[i]) * Math.min(1, dt * 18);
+    applyPose(h.hv, h.pose); }
+  rig.updateMatrixWorld(true);
+  for (const h of [bh, oh]) { if (!h) continue;
+    h.grip.getWorldPosition(handPos);
+    if (h.hasLast) { tmp.copy(handPos).sub(h.lastPos).divideScalar(Math.max(dt, 1e-3)); h.acc = tmp2.copy(tmp).sub(h.vel).length() / Math.max(dt, 1e-3); h.vel.copy(tmp); }
+    h.lastPos.copy(handPos); h.hasLast = true;
+    const sq = btn(h, 1);
+    if (sq && !h.squeezePrev) tryGrab(h, h === bh);
+    if (!sq) { if (h.grab) h.grab = null; if (h.carry) releaseCarry(h); }
+    h.squeezePrev = sq;
+    if (h.grab) updateEaselGrab(h); }
+  easel.root.updateMatrixWorld(true); table.updateMatrixWorld(true);
+  // dry buttons: any hand or tool tip
+  dryCool -= dt;
+  for (const h of [bh, oh]) { if (!h) continue; h.grip.getWorldPosition(handPos);
+    const pts = [handPos]; if (h.tool) pts.push(h.tool.group.localToWorld(tmp3.copy(h.tool.tipLocal)));
+    for (const p of pts) {
+      if (easel.dryBtn.getWorldPosition(tmp).distanceTo(p) < 0.03 && easel.art) { pressDry(easel.art.surf, easel.dryBtn); pulse(h, 0.6, 80); }
+      if (mural.dryBtn.getWorldPosition(tmp).distanceTo(p) < 0.04) { pressDry(mural.surf, mural.dryBtn); pulse(h, 0.6, 80); } } }
+  let scrapeV = 0, scrapeFreq = 1500, hiss = 0;
+  if (bh && bh.tool) { const r = bh.tool.kind === 'spray' ? updateSpray(bh, bh.tool, dt) : updateTool(bh, dt); if (r) { scrapeV = r.scrape || 0; scrapeFreq = r.freq || 1500; hiss = r.hiss || 0; } }
+  setScrape(scrapeV, scrapeFreq); setHiss(hiss);
+}
+function tryGrab(h, isBrushHand) {
+  h.grip.getWorldPosition(handPos);
+  if (isBrushHand) { let best = null, bd = 0.085;
+    for (const t of tools) { if (t.inHand) continue; t.group.localToWorld(tmp.copy(t.grabLocal)); const d = tmp.distanceTo(handPos); if (d < bd) { bd = d; best = t; } }
+    if (best) { const old = h.tool; if (old) { endStroke(old); returnTool(old); h.tool = null; } attachTool(best, h); pulse(h, 0.4, 40); burst(1800, 2, 0.05, 0.15); return; } }
+  else if (paletteHidden && !paletteHeld) { palette.group.getWorldPosition(tmp); if (tmp.distanceTo(handPos) < 0.22) { paletteHidden = false; attachPalette(h); pulse(h, 0.35, 30); return; } }
+  for (const slot of rackSlots) { const it = slot.item; if (!it) continue; box3.setFromObject(it.group).expandByScalar(0.03);
+    if (box3.containsPoint(handPos)) { h.carry = it; h.grip.attach(it.group); pulse(h, 0.4, 40); return; } }
+  box3.setFromObject(easel.root).expandByScalar(0.05);
+  if (box3.containsPoint(handPos)) { const yp = handYawPitch(h);
+    h.grab = { hp: handPos.clone(), yaw: yp.yaw, pitch: yp.pitch, ep: easel.root.position.clone(), ey: easel.root.rotation.y, tray: easel.holder.position.y, tilt: easel.tilt.rotation.x };
+    pulse(h, 0.35, 40); }
+}
+function updateEaselGrab(h) {
+  const g = h.grab; h.grip.getWorldPosition(handPos); const yp = handYawPitch(h);
+  let dyaw = yp.yaw - g.yaw; dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
+  const off = tmp.copy(g.ep).sub(g.hp); off.y = 0; off.applyAxisAngle(THREE.Object3D.DEFAULT_UP, dyaw);
+  easel.root.position.set(handPos.x + off.x, 0, handPos.z + off.z);
+  easel.root.position.x = Math.max(ROOM.x0 + 0.6, Math.min(ROOM.x1 - 0.6, easel.root.position.x)); easel.root.position.z = Math.max(ROOM.z0 + 0.6, Math.min(ROOM.z1 - 0.6, easel.root.position.z));
+  easel.root.rotation.y = g.ey + dyaw;
+  const hmax = easel.art ? 2.0 - easel.art.def.h - 0.05 : 1.02;
+  easel.holder.position.y = Math.max(0.22, Math.min(Math.min(1.02, hmax), g.tray + (handPos.y - g.hp.y)));
+  easel.tilt.rotation.x = Math.max(-0.38, Math.min(0.18, g.tilt - (yp.pitch - g.pitch) * 0.8));
+}
+function hapticFor(kind, toolKind, pressure) {
+  let v = 0.05 + pressure * 0.3, f = KINDS[kind].scrape;
+  if (kind === 'canvas') v += 0.06 * Math.sin(performance.now() * 0.09);
+  else if (kind === 'paper') v += 0.08 * Math.random();
+  else if (kind === 'brick') v += 0.25 * Math.random();
+  if (toolKind === 'pencil') { v += 0.12 * Math.random(); f *= 1.8; } else if (toolKind === 'marker' || toolKind === 'pen') f *= 1.4; else if (toolKind === 'eraser') f *= 0.7;
+  return [v, f];
+}
+function updateTool(h, dt) {
+  const t = h.tool, g = t.group; g.updateMatrixWorld(true);
+  tipW.copy(t.tipLocal).applyMatrix4(g.matrixWorld); baseW.copy(t.baseLocal).applyMatrix4(g.matrixWorld);
+  const isBrush = t.kind === 'brush', medium = toolMedium(t);
+  let contact = null;
+  for (const s of surfaces) {
+    if (s.retired) continue;
+    if (s.isPalette && !(isBrush && medium !== 'water')) continue;
+    s.mesh.updateMatrixWorld(); s.inv.copy(s.mesh.matrixWorld).invert();
+    tl.copy(tipW).applyMatrix4(s.inv); bl.copy(baseW).applyMatrix4(s.inv);
+    const lim = isBrush ? t.def.len * 1.3 : 0.02;
+    if (tl.z < t.eps && bl.z > tl.z + 1e-4 && bl.z > -0.004 && tl.z > -lim) {
+      const k = bl.z <= 0 ? 0 : Math.min(1, bl.z / (bl.z - tl.z));
+      const ix = bl.x + (tl.x - bl.x) * k, iy = bl.y + (tl.y - bl.y) * k;
+      if (Math.abs(ix) <= s.worldW / 2 && Math.abs(iy) <= s.worldH / 2) { contact = { s, ix, iy, d: t.eps - tl.z }; break; }
+    }
+  }
+  let out = null;
+  if (contact) {
+    const s = contact.s;
+    const pressure = Math.min(1, Math.max(0, (contact.d - 0.0003) / t.travel));
+    tmp.set(1, 0, 0).transformDirection(g.matrixWorld).transformDirection(s.inv);
+    paintContact(t, s, contact.ix, contact.iy, pressure, Math.atan2(tmp.y, tmp.x));
+    const speed = tmp3.copy(tipW).sub(t.prevTip).length() / Math.max(dt, 1e-3);
+    if (isBrush) {
+      mInv.copy(g.matrixWorld).invert(); m3.setFromMatrix4(mInv);
+      const n = tmp.set(0, 0, 1).transformDirection(s.mesh.matrixWorld).applyMatrix3(m3);
+      const vel = tmp2.copy(tipW).sub(t.prevTip).applyMatrix3(m3);
+      let bx = n.x, by = n.y; const nl = Math.hypot(bx, by) || 1; bx /= nl; by /= nl;
+      bx = bx * 0.6 - vel.x * 40; by = by * 0.6 - vel.y * 40; const bl2 = Math.hypot(bx, by); if (bl2 > 1) { bx /= bl2; by /= bl2; }
+      deformTuft(t, contact.d, bx, by); updateTuftColor(t);
+    }
+    const [hv, f] = hapticFor(s.kind, t.kind, pressure); pulse(h, hv, 18);
+    out = { scrape: Math.min(0.22, speed * (0.15 + pressure * 0.5) * (t.kind === 'pencil' ? 0.9 : 0.45)), freq: f };
+  } else {
+    if (t.state.surf) endStroke(t);
+    deformTuft(t, 0, 0, 0);
+    checkSupplies(h, t);
+  }
+  t.prevTip.copy(tipW);
+  return out;
+}
+// color wheel, value bar, water jar, watercolor pans, acrylic pots, ink bottle
+function checkSupplies(h, t) {
+  const tip = tipW;
+  palette.wheel.updateMatrixWorld(); localOf(palette.wheel, tip, tl);
+  if (tl.z < 0.008 && tl.z > -0.02 && pickWheel(tl.x, tl.y)) { applyPicked(t); pulse(h, 0.12, 15); return; }
+  palette.bar.updateMatrixWorld(); localOf(palette.bar, tip, tl);
+  if (tl.z < 0.008 && tl.z > -0.02 && Math.abs(tl.x) < 0.009 && Math.abs(tl.y) < 0.047) { pickBar(tl.y); applyPicked(t); pulse(h, 0.1, 15); return; }
+  if (t.kind === 'spray') return;
+  localOf(jar, tip, tl);
+  if (Math.hypot(tl.x, tl.z) < JAR.r && tl.y > 0.006 && tl.y < JAR.water) { rinse(t); if (Math.random() < 0.3) { pulse(h, 0.08, 20); burst(700, 1.5, 0.08, 0.06); } return; }
+  if (t.kind === 'brush') {
+    if (t.def.wc) { localOf(wcTin, tip, tl);
+      for (const p of wcPans) if (Math.abs(tl.x - p.x) < 0.009 && Math.abs(tl.z - p.z) < 0.012 && tl.y < 0.026 && tl.y > 0.0) { loadedFrom(t, p.K, 'water'); pulse(h, 0.1, 15); return; } }
+    else for (const p of acrylicPots) { localOf(p.g, tip, tl); if (Math.hypot(tl.x, tl.z) < 0.019 && tl.y < 0.032 && tl.y > 0.0) { loadedFrom(t, p.K, 'acrylic'); pulse(h, 0.1, 15); return; } }
+  }
+  if (t.kind === 'pen') { localOf(inkBottle, tip, tl); if (Math.hypot(tl.x, tl.z) < 0.013 && tl.y < 0.04 && tl.y > 0) { t.state.tipK = kFromSRGB(12, 12, 18); updateToolColor(t); pulse(h, 0.08, 15); } }
+}
+function updateSpray(h, t, dt) {
+  const st = t.state, g = t.group; g.updateMatrixWorld(true);
+  // shaking: sharp hand reversals rattle the mixing ball
+  t.shakeT -= dt;
+  if ((h.acc || 0) > 28 && t.shakeT <= 0) { t.shakeT = 0.09; rattle(); st.pressure = Math.min(1, st.pressure + 0.06); pulse(h, 0.5, 20); }
+  tipW.copy(t.tipLocal).applyMatrix4(g.matrixWorld);
+  const dir = tmp.set(0, 0, -1).transformDirection(g.matrixWorld);
+  checkSupplies(h, t);
+  const trig = bval(h, 0);
+  if (trig > 0.06 && st.pressure > 0.01) {
+    let flow = trig * (0.4 + 0.6 * Math.min(1, st.pressure * 2.2));
+    if (st.pressure < 0.2 && Math.random() < 0.5) flow *= Math.random() < 0.4 ? 2.2 : 0;
+    st.pressure = Math.max(0, st.pressure - dt * 0.05 * trig);
+    let hit = null;
+    for (const s of surfaces) {
+      if (s.retired || s.isPalette) continue;
+      s.mesh.updateMatrixWorld(); s.inv.copy(s.mesh.matrixWorld).invert();
+      tl.copy(tipW).applyMatrix4(s.inv); const dl = tmp2.copy(dir).transformDirection(s.inv);
+      if (tl.z <= 0 || dl.z >= -0.05) continue;
+      const k = -tl.z / dl.z; if (k > 0.9) continue;
+      const ix = tl.x + dl.x * k, iy = tl.y + dl.y * k;
+      if (Math.abs(ix) > s.worldW / 2 + 0.05 || Math.abs(iy) > s.worldH / 2 + 0.05) continue;
+      if (!hit || k < hit.k) hit = { s, ix, iy, k, cos: -dl.z };
+    }
+    const cone = st.cap === 'fat' ? 0.24 : 0.09;
+    if (hit) {
+      const s = hit.s, rM = hit.k * cone + 0.0025, m0 = flow * dt * (st.cap === 'fat' ? 0.0069 : 0.003) / (rM * rM) * hit.cos;
+      if (st.strokeSurf !== s) { if (st.strokeSurf) st.strokeSurf.endStroke(); s.beginStroke(); st.strokeSurf = s; }
+      s.spray((hit.ix / s.worldW + 0.5) * s.W, (hit.iy / s.worldH + 0.5) * s.H, rM * s.ppm, m0, st.tipK);
+    }
+    const L = hit ? Math.min(hit.k, 0.6) : 0.35; t.mist.visible = flow > 0; t.mist.scale.set(L * cone, L * cone, L);
+    pulse(h, 0.05 + 0.1 * trig, 16);
+    return { hiss: 0.18 * flow + (st.pressure < 0.2 ? 0.05 * Math.random() : 0) };
+  }
+  t.mist.visible = false; if (st.strokeSurf) { st.strokeSurf.endStroke(); st.strokeSurf = null; }
+  return null;
+}
+
+// ---------------- desktop / phone preview ----------------
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+let sprayIdx = -1, deskTool = brushes[2], dragMode = null, lastPt = null, yaw = 0, pitch = -0.08, deskPointer = null;
+const DESK_KEYS = { '1': 0, '2': 1, '3': 2, '4': 3, '5': 4, '6': 5, '7': 6, '8': 7, '9': 8, '0': 9 };
+function setDeskTool(t) { endStroke(deskTool); deskTool = t; const el = document.getElementById('tool'); if (el) el.textContent = t.def.name; }
+function hitTest(e) {
+  ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); ray.setFromCamera(ndc, camera);
+  const list = surfaces.filter(s => !s.retired).map(s => s.mesh).concat([palette.wheel, palette.bar]);
+  return ray.intersectObjects(list, false)[0] || null;
+}
+function deskAct(hit) {
+  const o = hit.object;
+  if (o === palette.wheel) { const p = o.worldToLocal(hit.point.clone()); if (pickWheel(p.x, p.y)) applyPicked(deskTool); return 'pick'; }
+  if (o === palette.bar) { const p = o.worldToLocal(hit.point.clone()); pickBar(p.y); applyPicked(deskTool); return 'pick'; }
+  const s = o.userData.surface; if (!s) return null;
+  if (s.isPalette && !(deskTool.kind === 'brush' && !deskTool.def.wc)) return null;
+  if (deskTool.kind === 'spray') return 'spray';
+  const p = o.worldToLocal(hit.point.clone()); paintContact(deskTool, s, p.x, p.y, 0.5, 0); return 'paint';
+}
+renderer.domElement.addEventListener('pointerdown', e => {
+  if (renderer.xr.isPresenting) return; initAudio(); renderer.domElement.setPointerCapture(e.pointerId);
+  const hit = hitTest(e); const r = hit ? deskAct(hit) : null; dragMode = r === 'paint' || r === 'spray' ? r : 'look';
+  lastPt = { x: e.clientX, y: e.clientY }; deskPointer = e;
+});
+renderer.domElement.addEventListener('pointermove', e => {
+  if (!dragMode) return; deskPointer = e;
+  if (dragMode === 'paint') { const hit = hitTest(e); if (hit && hit.object.userData.surface) { if (hit.object.userData.surface !== deskTool.state.surf) endStroke(deskTool); deskAct(hit); } }
+  else if (dragMode === 'look') { yaw -= (e.clientX - lastPt.x) * 0.004; pitch = Math.max(-1.2, Math.min(1.0, pitch - (e.clientY - lastPt.y) * 0.004)); }
+  lastPt = { x: e.clientX, y: e.clientY };
+});
+const upFn = () => { endStroke(deskTool); dragMode = null; setHiss(0); };
+renderer.domElement.addEventListener('pointerup', upFn); renderer.domElement.addEventListener('pointercancel', upFn);
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (DESK_KEYS[k] !== undefined) setDeskTool(brushes[DESK_KEYS[k]]);
+  const byId = id => tools.find(t => t.def.id === id);
+  if (k === 'p') setDeskTool(byId('4b')); if (k === 'm') setDeskTool(byId('mkc')); if (k === 'e') setDeskTool(byId('eraser')); if (k === 'i') setDeskTool(byId('pen'));
+  if (k === 's') setDeskTool(byId('spray' + ((tools.indexOf(deskTool) + 1) % 6)));
+  if (k === 'z') (lastSurf || easel.art.surf).undo(); if (k === 'y') (lastSurf || easel.art.surf).redo();
+  if (k === 'w') rinse(deskTool); if (k === 'd') { easel.art.surf && easel.art.surf.dryAll(); mural.surf.dryAll(); }
+  if (k === 'n' && easel.art.surf) { const def = BLANKS[(BLANKS.indexOf(easel.art.def) + 1) % BLANKS.length]; const old = easel.art; old.surf.retire(renderer); surfaces.splice(surfaces.indexOf(old.surf), 1); leanAgainstWall(old); mountOnEasel(buildArt(def, true)); }
+  if (k === 'v') { rig.position.set(-5.2, 0, -0.5); yaw = Math.PI / 2; } if (k === 'b') { rig.position.set(0, 0, 0.02); yaw = 0; }
+});
+function updateDesktop(dt) {
+  camera.rotation.set(pitch, yaw, 0, 'YXZ');
+  if (dragMode === 'spray' && deskPointer && deskTool.kind === 'spray') {
+    const hit = hitTest(deskPointer); const s = hit && hit.object.userData.surface;
+    if (s && !s.isPalette) { const p = hit.object.worldToLocal(hit.point.clone()), st = deskTool.state, rM = 0.18 * 0.24 + 0.0025;
+      if (st.strokeSurf !== s) { if (st.strokeSurf) st.strokeSurf.endStroke(); s.beginStroke(); st.strokeSurf = s; }
+      s.spray((p.x / s.worldW + 0.5) * s.W, (p.y / s.worldH + 0.5) * s.H, rM * s.ppm, 0.8 * dt * 0.0069 / (rM * rM), st.tipK); setHiss(0.15); }
+  }
+}
+
+// ---------------- environment reflections ----------------
+{
+  const pm = new THREE.PMREMGenerator(renderer);
+  scene.position.set(0, -1.5, 1.0); scene.updateMatrixWorld(true);
+  const env = pm.fromScene(scene, 0.035, 0.1, 200).texture;
+  scene.position.set(0, 0, 0); scene.updateMatrixWorld(true);
+  scene.environment = env; pm.dispose();
+}
+
+// ---------------- loop ----------------
+const clock = new THREE.Clock();
+const gDown = new THREE.Vector3();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(0.05, clock.getDelta());
+  if (renderer.xr.isPresenting) updateXR(dt); else updateDesktop(dt);
+  for (const s of surfaces) {
+    if (s.retired) continue;
+    s.mesh.updateMatrixWorld(); mInv.copy(s.mesh.matrixWorld).invert();
+    gDown.set(0, -1, 0).transformDirection(mInv); s.gx = gDown.x; s.gy = gDown.y; s.gmag = Math.hypot(gDown.x, gDown.y);
+    s.simulate(dt);
+  }
+  let budget = 28; for (const s of surfaces) budget = s.flush(renderer, Math.max(4, budget));
+  renderer.render(scene, camera);
+});
+document.getElementById('loading').style.display = 'none';
+
+</script>
+</body>
+</html>
