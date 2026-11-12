@@ -1,0 +1,115 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>BREACH VR</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+:root{--bg:#0b0e11;--fg:#e8ecef;--ac:#e0a526;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,sans-serif;overflow:hidden}
+#ov{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;z-index:5;background:var(--bg)}
+h1{letter-spacing:.3em;margin:0 0 6px;color:var(--ac)}p{max-width:460px;line-height:1.5;margin:6px 0;font-size:15px}
+button{margin-top:16px;padding:14px 34px;font-size:18px;font-weight:700;background:var(--ac);color:#111;border:0;border-radius:8px}
+small{opacity:.6;margin-top:18px}
+</style></head><body>
+<div id="ov"><h1>BREACH</h1><p>Tactical room-clearing for Meta Quest. Clear every hostile in the building.</p>
+<p><b>R Trigger</b> fire · <b>A</b> drop mag · <b>B</b> semi/auto<br><b>L Grip</b> at mag well: insert mag · <b>L Trigger</b> at rear of gun: rack the charging handle<br><b>L Grip</b> on handguard: two-hand steady · <b>L Stick</b> move · <b>R Stick</b> snap turn</p>
+<button id="b">ENTER VR</button><small id="s">made by Noah Young.</small></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const T=THREE,V=(x,y,z)=>new T.Vector3(x,y,z);
+let R,S,cam,rig,gun,slide,magM,muz,fl,fm,hud,hx,msg,mx,dmg,au,nb,last=0,hudT=0,msgT=0,rec=0,turned=false,flT=0;
+const walls=[],wm=[],en=[],fx=[],hm=[],hands={},st={};
+const rc=new T.Raycaster(),A=V(),B=V(),P=V(),D=V(),H=V(),Q=new T.Quaternion();
+const mt=(c,r=.7)=>new T.MeshStandardMaterial({color:c,roughness:r,metalness:.2});
+function bx(w,h,d,c,x,y,z,p){const m=new T.Mesh(new T.BoxGeometry(w,h,d),mt(c));m.position.set(x,y,z);(p||S).add(m);return m}
+function wall(x,z,w,d,h=3,c=0x6b6f73){const m=bx(w,h,d,c,x,h/2,z);walls.push({x0:x-w/2,x1:x+w/2,z0:z-d/2,z1:z+d/2});wm.push(m)}
+function cp(w,h,c){const cv=document.createElement('canvas');cv.width=w;cv.height=h;return[cv,cv.getContext('2d'),new T.CanvasTexture(cv)]}
+function init(){
+R=new T.WebGLRenderer({antialias:true});R.setPixelRatio(devicePixelRatio);R.setSize(innerWidth,innerHeight);R.xr.enabled=true;document.body.appendChild(R.domElement);
+S=new T.Scene();S.background=new T.Color(0x07090b);S.fog=new T.Fog(0x07090b,6,26);
+cam=new T.PerspectiveCamera(70,innerWidth/innerHeight,.03,80);cam.position.y=1.6;rig=new T.Group();S.add(rig);rig.add(cam);
+S.add(new T.HemisphereLight(0x8899aa,0x222222,.8));
+[[0,8],[0,1],[-4,-6],[4,-6]].forEach(p=>{const l=new T.PointLight(0xffe8c0,.9,14);l.position.set(p[0],2.6,p[1]);S.add(l)});
+const fl0=new T.Mesh(new T.PlaneGeometry(16,20),mt(0x2a2d30,.9));fl0.rotation.x=-Math.PI/2;S.add(fl0);
+const ce=new T.Mesh(new T.PlaneGeometry(16,20),mt(0x1a1c1e));ce.rotation.x=Math.PI/2;ce.position.y=3;S.add(ce);
+wall(0,-10,16,.3);wall(0,10,16,.3);wall(-8,0,.3,20);wall(8,0,.3,20);
+wall(-4.75,4,6.5,.3);wall(4.75,4,6.5,.3);wall(-6.5,-2,3,.3);wall(.5,-2,7,.3);wall(7,-2,2,.3);wall(0,-8,.3,4);
+[[-3,1,1,1],[3,2,1.2,1],[-5,-5,1,1.1],[5,-4,1.2,1],[2,-8.5,1,1.1],[-2,7,1,1],[4,7.5,1.2,1]].forEach(c=>wall(c[0],c[1],c[2],c[2],c[3],0x5a4a35));
+// gun
+gun=new T.Group();gun.position.set(0,.06,0);
+bx(.05,.07,.4,0x222428,0,0,-.15,gun);slide=bx(.045,.035,.3,0x15171a,0,.05,-.18,gun);bx(.02,.02,.2,0x0a0a0a,0,.02,-.45,gun);
+const gr=bx(.04,.11,.05,0x1a1a1a,0,-.08,.02,gun);gr.rotation.x=.25;magM=bx(.035,.12,.05,0x333333,0,-.1,-.12,gun);bx(.02,.025,.04,0x000000,0,.08,-.1,gun);bx(.04,.06,.2,0x222222,0,-.01,.15,gun);
+muz=new T.Object3D();muz.position.set(0,.02,-.56);gun.add(muz);
+fl=new T.PointLight(0xffcc66,0,6);muz.add(fl);fm=new T.Mesh(new T.PlaneGeometry(.12,.12),new T.MeshBasicMaterial({color:0xffcc66,blending:T.AdditiveBlending,transparent:true}));fm.position.z=-.05;fm.visible=false;muz.add(fm);
+// hud
+let c=cp(256,160);hx=c[1];hud=new T.Mesh(new T.PlaneGeometry(.14,.0875),new T.MeshBasicMaterial({map:c[2]}));hud.userData.t=c[2];hud.position.set(0,.03,.08);hud.rotation.x=-1.2;
+c=cp(512,192);mx=c[1];msg=new T.Mesh(new T.PlaneGeometry(1.2,.45),new T.MeshBasicMaterial({map:c[2],transparent:true,depthTest:false}));msg.userData.t=c[2];msg.position.set(0,.25,-1.5);msg.renderOrder=999;cam.add(msg);
+dmg=new T.Mesh(new T.PlaneGeometry(2,2),new T.MeshBasicMaterial({color:0xaa0000,transparent:true,opacity:0,depthTest:false}));dmg.position.z=-.25;dmg.renderOrder=998;cam.add(dmg);
+for(let i=0;i<2;i++){const k=R.xr.getController(i);rig.add(k);k.userData.pb=[];
+k.add(new T.Mesh(new T.SphereGeometry(.035),mt(0x333333)));
+k.addEventListener('connected',e=>{k.userData.gp=e.data.gamepad;if(e.data.handedness==='right'){hands.R=k;k.add(gun)}else{hands.L=k;k.add(hud)}})}
+nb=null;reset();R.setAnimationLoop(loop);
+addEventListener('resize',()=>{cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();R.setSize(innerWidth,innerHeight)});
+}
+const SP=[[-4,0],[5,1],[-4,-5],[-6.5,-8.5],[4,-6],[6.5,-9],[2.5,-9],[-1.5,-4]];
+function mkEn(x,z){const g=new T.Group();g.position.set(x,0,z);S.add(g);const e={g,hp:100,alive:true,aim:-Math.random()*2,fall:0,alert:false};
+const p=(w,h,d,c,px,py,pz,n)=>{const m=bx(w,h,d,c,px,py,pz,g);m.userData={e,part:n};hm.push(m)};
+p(.42,.6,.26,0x4a5a3a,0,1.15,0,'b');p(.22,.24,.22,0xc8a07a,0,1.57,0,'h');p(.26,.1,.26,0x2c3a22,0,1.7,0,'h');
+p(.16,.8,.2,0x3a4430,-.1,.4,0,'b');p(.16,.8,.2,0x3a4430,.1,.4,0,'b');p(.08,.1,.5,0x111111,.14,1.25,.3,'b');en.push(e)}
+function reset(){en.forEach(e=>S.remove(e.g));en.length=0;hm.length=0;SP.forEach(s=>mkEn(s[0],s[1]));
+Object.assign(st,{hp:100,mag:30,ch:true,res:[30,30,30,30],auto:false,cool:0,over:false,win:false,lg:false});
+rig.position.set(0,0,8.5);rig.rotation.y=0;rec=0;say(['BREACH: CLEAR ALL HOSTILES','R-Trig fire · A drop mag · B fire mode','L-Grip at mag well: insert · L-Trig at rear: rack','L-Stick move · R-Stick turn'],9)}
+function say(l,t){mx.clearRect(0,0,512,192);mx.fillStyle='rgba(5,10,14,.75)';mx.fillRect(0,0,512,192);mx.textAlign='center';l.forEach((s,i)=>{mx.fillStyle=i?'#cfe':'#e0a526';mx.font=(i?'24':'bold 34')+'px sans-serif';mx.fillText(s,256,48+i*38)});msg.userData.t.needsUpdate=true;msg.visible=true;msgT=t}
+function drawHud(){const c=hx;c.fillStyle='#071018';c.fillRect(0,0,256,160);c.fillStyle='#7fe0ff';c.font='bold 34px monospace';c.fillText('AMMO '+((st.mag||0)+(st.ch?1:0)),10,34);
+c.fillText(st.mag===null?'NO MAG':'MAG '+st.mag,10,70);c.font='22px monospace';c.fillStyle='#9fb';c.fillText('RESERVE x'+st.res.length+(st.ch?'':' !RACK'),10,98);
+c.fillStyle=st.hp<40?'#f66':'#9f9';c.fillText('HP '+st.hp+'  '+(st.auto?'AUTO':'SEMI'),10,126);c.fillStyle='#fc6';c.fillText('HOSTILES '+en.filter(e=>e.alive).length,10,152);hud.userData.t.needsUpdate=true}
+function snd(v,f,l){if(!au)return;const s=au.createBufferSource();s.buffer=nb;const q=au.createBiquadFilter();q.type='lowpass';q.frequency.value=f;const g=au.createGain();g.gain.setValueAtTime(v,au.currentTime);g.gain.exponentialRampToValueAtTime(.001,au.currentTime+l);s.connect(q);q.connect(g);g.connect(au.destination);s.start()}
+function hap(k,i,d){try{k.userData.gp.hapticActuators[0].pulse(i,d)}catch(e){}}
+function add(m,life,v,g){S.add(m);fx.push({m,life,v,g})}
+function tracer(o,e){const l=new T.Line(new T.BufferGeometry().setFromPoints([o.clone(),e]),new T.LineBasicMaterial({color:0xffdd88}));add(l,.06)}
+function spark(p){const m=new T.Mesh(new T.BoxGeometry(.04,.04,.04),new T.MeshBasicMaterial({color:0xffcc55}));m.position.copy(p);add(m,.15)}
+function brass(p,v,s,c){const m=new T.Mesh(new T.BoxGeometry(s[0],s[1],s[2]),mt(c,.4));m.position.copy(p);add(m,5,v,true)}
+function stab(){if(!hands.L||!st.lg)return false;hands.L.getWorldPosition(A);B.set(0,0,-.35);gun.localToWorld(B);return A.distanceTo(B)<.2}
+function nearL(x,y,z,r){if(!hands.L||!hands.R)return false;hands.L.getWorldPosition(A);B.set(x,y,z);gun.localToWorld(B);return A.distanceTo(B)<r}
+function hurt(e,n){if(!e.alive)return;e.hp-=n;e.alert=true;if(e.hp<=0){e.alive=false;for(let i=hm.length;i--;)if(hm[i].userData.e===e)hm.splice(i,1);
+if(!en.some(x=>x.alive)){st.win=true;say(['ROOM CLEARED','All hostiles down. Press A to run it again.'],99)}}}
+function fire(){if(st.cool>0||st.over||st.win)return;
+if(!st.ch){st.cool=.15;snd(.05,3000,.03);return}
+st.cool=st.auto?.085:.1;const k=stab()?.5:1;
+muz.getWorldPosition(P);muz.getWorldQuaternion(Q);D.set(0,0,-1).applyQuaternion(Q);D.x+=(Math.random()-.5)*.01*k;D.y+=(Math.random()-.5)*.01*k;D.normalize();
+rc.set(P,D);rc.far=100;const h=rc.intersectObjects(wm.concat(hm),false)[0],e=h?h.point:P.clone().addScaledVector(D,60);tracer(P,e);
+if(h){const u=h.object.userData;if(u.e)hurt(u.e,u.part==='h'?100:34);spark(e)}
+if(st.mag>0)st.mag--;else st.ch=false;
+rec=Math.min(rec+k,3);fl.intensity=3;fm.visible=true;flT=.04;snd(.6,1800,.2);hap(hands.R,.8,40);
+gun.localToWorld(B.set(.03,.04,-.1));brass(B.clone(),V(1+Math.random(),1.5,.3),[.012,.012,.04],0xc9a14a);
+en.forEach(x=>{if(x.alive&&x.g.position.distanceTo(P)<14)x.alert=true})}
+function rack(){if(st.mag>0){st.mag--;st.ch=true;snd(.08,2500,.05);hap(hands.L,.5,30);gun.localToWorld(B.set(.03,.04,-.1));brass(B.clone(),V(1,1.5,.3),[.012,.012,.04],0xc9a14a)}}
+function ins(){if(st.mag===null&&st.res.length){st.mag=st.res.shift();snd(.08,1200,.06);hap(hands.L,.6,40)}}
+function drop(){if(st.mag===null)return;gun.localToWorld(B.set(0,-.1,-.12));brass(B.clone(),V(0,-.3,0),[.035,.12,.05],0x333333);st.mag=null;snd(.05,900,.05)}
+function btn(k,i){const g=k&&k.userData.gp,n=!!(g&&g.buttons[i]&&g.buttons[i].pressed),w=!!k.userData.pb[i];k.userData.pb[i]=n;return{now:n,down:n&&!w}}
+function snap(a){cam.getWorldPosition(H);const x=H.x,z=H.z;rig.rotation.y+=a;rig.updateMatrixWorld(true);cam.getWorldPosition(H);rig.position.x+=x-H.x;rig.position.z+=z-H.z}
+function hostile(dt){cam.getWorldPosition(H);
+for(const e of en){const g=e.g;if(!e.alive){if(e.fall<1){e.fall+=dt*2.5;g.rotateX(-dt*3.9)}continue}
+const dx=H.x-g.position.x,dz=H.z-g.position.z,d=Math.hypot(dx,dz);let los=false;
+if(d<18){P.set(g.position.x,1.5,g.position.z);D.set(dx,H.y-1.5,dz);const L=D.length();D.normalize();rc.set(P,D);rc.far=L;los=!rc.intersectObjects(wm,false).length}
+if(los||e.alert)g.lookAt(H.x,0,H.z);
+if(los&&!st.over&&!st.win){e.aim+=dt;if(e.aim>1){e.aim=-(.4+Math.random()*.8);const o=P.clone().addScaledVector(D,.6),end=H.clone();
+const hit=Math.random()<Math.max(.2,.65-d*.04);if(!hit)end.add(V((Math.random()-.5)*1.2,(Math.random()-.5)*1.2,(Math.random()-.5)*1.2));tracer(o,end);snd(Math.max(.05,.3-d*.015),1200,.15);
+if(hit){st.hp-=10;dmg.material.opacity=.6;hap(hands.L,1,80);hap(hands.R,1,80);if(st.hp<=0){st.hp=0;st.over=true;say(['YOU WERE KILLED','Press A to restart'],99)}}}}else e.aim=Math.min(e.aim,0)}}
+function loop(t){const dt=Math.min((t-last)/1000,.05);last=t;st.cool-=dt;
+if(hands.R){const tr=btn(hands.R,0),a=btn(hands.R,4),b=btn(hands.R,5);
+if(a.down){if(st.over||st.win)reset();else drop()}if(b.down){st.auto=!st.auto;snd(.04,3000,.03)}if(tr.now&&(st.auto||tr.down))fire();
+const ax=hands.R.userData.gp.axes[2]||0;if(Math.abs(ax)>.7&&!turned){snap(-Math.sign(ax)*Math.PI/6);turned=true}if(Math.abs(ax)<.3)turned=false}
+if(hands.L){const lt=btn(hands.L,0),lg=btn(hands.L,1);st.lg=lg.now;
+if(lt.down&&nearL(0,.05,.0,.17))rack();if(lg.down&&nearL(0,-.1,-.12,.17))ins();
+const g=hands.L.userData.gp,x=g.axes[2]||0,y=g.axes[3]||0;if(Math.hypot(x,y)>.15&&!st.over){cam.getWorldDirection(P);P.y=0;P.normalize();rig.position.x+=(P.x*-y-P.z*x)*2.2*dt;rig.position.z+=(P.z*-y+P.x*x)*2.2*dt}}
+cam.getWorldPosition(H);for(const w of walls){const cx=Math.max(w.x0,Math.min(H.x,w.x1)),cz=Math.max(w.z0,Math.min(H.z,w.z1)),dx=H.x-cx,dz=H.z-cz,d=Math.hypot(dx,dz);if(d>1e-4&&d<.3){rig.position.x+=dx/d*(.3-d);rig.position.z+=dz/d*(.3-d);H.x+=dx/d*(.3-d);H.z+=dz/d*(.3-d)}}
+rec=Math.max(0,rec-dt*7);gun.rotation.x=-rec*.09;gun.position.z=rec*.03;slide.position.z=-.18+(st.ch?0:.07)+(rec>1.5?.05:0);magM.visible=st.mag!==null;
+if(flT>0){flT-=dt;if(flT<=0){fl.intensity=0;fm.visible=false}}
+hostile(dt);dmg.material.opacity=Math.max(0,dmg.material.opacity-dt*1.2);
+for(let i=fx.length;i--;){const f=fx[i];if(f.v){if(f.g)f.v.y-=9.8*dt;f.m.position.addScaledVector(f.v,dt);if(f.m.position.y<.03){f.m.position.y=.03;f.v.set(0,0,0)}}f.life-=dt;if(f.life<=0){S.remove(f.m);fx.splice(i,1)}}
+if(msgT>0){msgT-=dt;if(msgT<=0)msg.visible=false}hudT-=dt;if(hudT<=0){hudT=.15;drawHud()}
+R.render(S,cam)}
+document.getElementById('b').onclick=async()=>{
+try{if(!R)init();au=new(window.AudioContext||window.webkitAudioContext)();nb=au.createBuffer(1,au.sampleRate*.3,au.sampleRate);const d=nb.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+const s=await navigator.xr.requestSession('immersive-vr',{optionalFeatures:['local-floor','bounded-floor']});R.xr.setReferenceSpaceType('local-floor');await R.xr.setSession(s);
+document.getElementById('ov').style.display='none';s.addEventListener('end',()=>{document.getElementById('ov').style.display='flex'})}
+catch(e){document.getElementById('s').textContent='VR not available here. Open this page in the Meta Quest Browser. ('+(e.message||e)+')'}};
+</script></body></html>
