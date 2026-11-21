@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hollow Star</title>
+<style>
+:root{color-scheme:dark;--bg:#05060a;--fg:#d9e4ea;--dim:#8a98a3;--amber:#ffb347;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:Bahnschrift,"DIN Alternate","Arial Narrow",Arial,sans-serif;overflow:hidden}
+canvas{display:block}
+#ov{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:flex-end;padding:6vh 7vw calc(6vh + env(safe-area-inset-bottom,0px));background:linear-gradient(90deg,#05060aee,#05060a66 60%,transparent)}
+h1{font-weight:200;font-size:clamp(40px,10vw,104px);letter-spacing:.1em;margin:0 0 .15em}
+p{max-width:36ch;line-height:1.5;color:var(--dim);margin:.35em 0}
+button{align-self:flex-start;margin-top:18px;padding:14px 30px;font:inherit;font-size:18px;background:none;color:var(--amber);border:1px solid var(--amber);cursor:pointer}
+button:disabled{opacity:.35;cursor:default}
+button:focus-visible{outline:2px solid var(--fg);outline-offset:3px}
+</style></head><body>
+<div id="ov"><h1>Hollow Star</h1>
+<p>Your relay ship went dark beside a dead station. Fly in, step outside, and pull three power cells from its hull before your air runs out.</p>
+<p>Something out there only moves when you are not looking. Keep your left-hand light on it.</p>
+<p>Right trigger: thrust where your hand points. Grip: brake, or grab glowing rails on a spacewalk. A: leave the ship at the dock.</p>
+<p id="st"></p><button id="go">Enter VR</button></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const T=THREE,V=(x,y,z)=>new T.Vector3(x,y,z),R=Math.random,$=id=>document.getElementById(id);
+const rd=new T.WebGLRenderer({antialias:true});rd.setPixelRatio(Math.min(devicePixelRatio,2));rd.setSize(innerWidth,innerHeight);rd.xr.enabled=true;rd.outputEncoding=T.sRGBEncoding;rd.toneMapping=T.ACESFilmicToneMapping;rd.toneMappingExposure=1.1;document.body.appendChild(rd.domElement);
+const sc=new T.Scene();sc.background=new T.Color(0x020308);sc.fog=new T.FogExp2(0x04060e,.0009);
+const cam=new T.PerspectiveCamera(70,innerWidth/innerHeight,.05,1500),rig=new T.Group();rig.add(cam);sc.add(rig);
+const SUN=V(-.45,.22,-.86).normalize();sc.add(new T.HemisphereLight(0x5a78a8,0x0a0c14,.3));const fill=new T.DirectionalLight(0x3a5aa0,.55);fill.position.copy(SUN).multiplyScalar(-100);sc.add(fill);
+const sun=new T.DirectionalLight(0xffb878,2.4);sun.position.copy(SUN).multiplyScalar(100);sc.add(sun);
+const DOCK=V(0,10.6,-199);function tex(w,h,fn,srgb){const c=document.createElement('canvas');c.width=w;c.height=h;fn(c.getContext('2d'),w,h);const t=new T.CanvasTexture(c);t.wrapS=t.wrapT=T.RepeatWrapping;t.anisotropy=4;if(srgb)t.encoding=T.sRGBEncoding;return t}function grime(x,w,h,base,n){x.fillStyle=base;x.fillRect(0,0,w,h);for(let i=0;i<n;i++){x.fillStyle=R()<.5?'rgba(0,0,0,'+R()*.08+')':'rgba(210,200,180,'+R()*.06+')';x.fillRect(R()*w,R()*h,4+R()*50,4+R()*50)}}
+const hullTex=tex(512,512,(x,w,h)=>{grime(x,w,h,'#566376',1100);for(let i=0;i<8;i++)for(let j=0;j<4;j++){x.fillStyle=(R()<.5?'rgba(255,255,255,':'rgba(0,0,0,')+R()*.1+')';x.fillRect(i*64+2,j*128+2,60,124)}x.strokeStyle='rgba(6,8,12,.95)';x.lineWidth=3;for(let i=0;i<=8;i++){x.beginPath();x.moveTo(i*64,0);x.lineTo(i*64,h);x.stroke()}for(let j=0;j<=4;j++){x.beginPath();x.moveTo(0,j*128);x.lineTo(w,j*128);x.stroke()}x.fillStyle='rgba(14,18,24,.9)';for(let i=0;i<8;i++)for(let j=0;j<16;j++){x.fillRect(i*64+6,j*32+5,3,3);x.fillRect(i*64+55,j*32+5,3,3)}for(let i=0;i<16;i++){x.fillStyle='rgba(80,40,15,'+(.08+R()*.18)+')';x.fillRect(R()*w,R()*h*.6,3+R()*7,50+R()*240)}x.fillStyle='rgba(230,170,40,.55)';for(let i=0;i<8;i+=2)x.fillRect(i*64,250,64,10)},1);hullTex.repeat.set(6,8);
+const winTex=tex(512,512,(x,w,h)=>{x.fillStyle='#000';x.fillRect(0,0,w,h);for(let i=0;i<16;i++)for(let j=0;j<16;j++)if(R()<.07){x.fillStyle=R()<.7?'#ffbf70':'#7fd0ff';x.fillRect(i*32+8,j*32+10,16,8)}},1);
+const solTex=tex(256,256,(x,w,h)=>{x.fillStyle='#0b1a3a';x.fillRect(0,0,w,h);x.strokeStyle='#3d5f9f';x.lineWidth=2;for(let i=0;i<=8;i++){x.beginPath();x.moveTo(i*32,0);x.lineTo(i*32,h);x.moveTo(0,i*32);x.lineTo(w,i*32);x.stroke()}},1);solTex.repeat.set(4,2);
+const rockTex=tex(256,256,(x,w,h)=>grime(x,w,h,'#5a534b',1400),1);
+const hm=new T.MeshStandardMaterial({map:hullTex,bumpMap:hullTex,bumpScale:1.5,emissive:0xffffff,emissiveMap:winTex,emissiveIntensity:.9,metalness:.5,roughness:.5}),sol=new T.MeshStandardMaterial({map:solTex,metalness:.8,roughness:.3}),cm=new T.MeshStandardMaterial({color:0x1c222c,roughness:.7,metalness:.5});
+const sa=[],sk=[];for(let i=0;i<3200;i++){const p=V(R()-.5,R()-.5,R()-.5);if(i%3==0){p.y*=.12;p.applyAxisAngle(V(0,0,1),.5)}p.setLength(900);sa.push(p.x,p.y,p.z);const b=.35+R()*.65,w=R();sk.push(b*(w<.15?1:.8),b*(w<.15?.8:.9),b*(w<.15?.6:1))}
+const sg=new T.BufferGeometry();sg.setAttribute('position',new T.Float32BufferAttribute(sa,3));
+sg.setAttribute('color',new T.Float32BufferAttribute(sk,3));
+const far=new T.Group();sc.add(far);far.add(new T.Points(sg,new T.PointsMaterial({size:2.2,sizeAttenuation:false,vertexColors:true,fog:false})));
+const glowTex=tex(128,128,(x,w,h)=>{const g=x.createRadialGradient(64,64,0,64,64,64);g.addColorStop(0,'rgba(255,255,255,1)');g.addColorStop(.25,'rgba(255,255,255,.35)');g.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=g;x.fillRect(0,0,w,h)},1);
+const nebTex=tex(256,256,(x,w,h)=>{for(let i=0;i<70;i++){const cx=R()*w,cy=R()*h,r=20+R()*60,g=x.createRadialGradient(cx,cy,0,cx,cy,r);g.addColorStop(0,'rgba(255,255,255,.14)');g.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=g;x.fillRect(0,0,w,h)}x.globalCompositeOperation='destination-in';const m=x.createRadialGradient(128,128,0,128,128,128);m.addColorStop(0,'#fff');m.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=m;x.fillRect(0,0,w,h)},1);
+function halo(col,size,pos,op,par,tx){const s=new T.Sprite(new T.SpriteMaterial({map:tx||glowTex,color:col,blending:T.AdditiveBlending,depthWrite:false,transparent:true,opacity:op,fog:false}));s.scale.set(size,size,1);s.position.copy(pos);(par||sc).add(s);return s}
+const blink=[];[[0x2a6a8a,-520,-120,-500,1000,.5],[0x6a2a7a,420,260,-560,1100,.45],[0x7a2a1a,60,-300,-700,1200,.4],[0x1a5a6a,-420,200,420,1000,.4]].forEach(([c,x,y,z,s,o])=>halo(c,s,V(x,y,z),o,far,nebTex));
+/* black hole backdrop */
+const bh=new T.Group();bh.position.copy(SUN).multiplyScalar(700);far.add(bh);bh.lookAt(0,0,0);bh.add(new T.Mesh(new T.SphereGeometry(62,32,16),new T.MeshBasicMaterial({color:0,fog:false})));
+const grad=l=>tex(512,512,(x,w,h)=>{const g=x.createRadialGradient(256,256,0,256,256,256);l.forEach(([s,c])=>g.addColorStop(s,c));x.fillStyle=g;x.fillRect(0,0,w,h)},1);
+const addM=(m,g)=>{const o=new T.Mesh(g,new T.MeshBasicMaterial({map:m,transparent:true,blending:T.AdditiveBlending,depthWrite:false,side:T.DoubleSide,fog:false}));bh.add(o);return o};
+const disk=addM(grad([[0,'rgba(0,0,0,0)'],[.24,'rgba(0,0,0,0)'],[.26,'rgba(255,250,235,1)'],[.4,'rgba(255,205,130,.95)'],[.65,'rgba(235,110,40,.5)'],[1,'rgba(120,30,10,0)']]),new T.RingGeometry(90,360,96));disk.rotation.x=Math.PI/2-.2;
+addM(grad([[0,'rgba(0,0,0,0)'],[.5,'rgba(0,0,0,0)'],[.545,'rgba(255,235,200,.95)'],[.6,'rgba(255,170,90,.55)'],[.8,'rgba(255,110,40,.18)'],[1,'rgba(255,110,40,0)']]),new T.CircleGeometry(150,64));halo(0xff9a50,800,V(0,0,0),.28,bh);
+/* drifting dust for motion cues */
+const dN=500,dp=new Float32Array(dN*3).map(()=>(R()-.5)*60),dgm=new T.BufferGeometry();dgm.setAttribute('position',new T.BufferAttribute(dp,3));
+const dust=new T.Points(dgm,new T.PointsMaterial({size:.09,color:0x9ab4c8,transparent:true,opacity:.6,depthWrite:false,fog:false}));dust.frustumCulled=false;sc.add(dust);
+/* station */
+const st=new T.Group();st.position.set(0,0,-230);sc.add(st);
+const hull=new T.Mesh(new T.CylinderGeometry(8,8,70,48,8),hm);hull.rotation.x=Math.PI/2;st.add(hull);
+const ring=new T.Mesh(new T.TorusGeometry(11.5,1.3,16,72),hm);ring.position.z=-5;st.add(ring);
+[-1,1].forEach(s=>{const p=new T.Mesh(new T.BoxGeometry(26,.2,12),sol);p.position.set(s*24,0,12);st.add(p)});
+for(let i=0;i<40;i++){const a=R()*6.28,m=new T.Mesh(new T.BoxGeometry(1+R()*2,1+R()*3,1+R()*3),hm);m.position.set(Math.cos(a)*8.4,Math.sin(a)*8.4,(R()-.5)*66);m.rotation.z=a;st.add(m)}
+const beacon=new T.PointLight(0xff2a1a,2,45);beacon.position.set(0,12,33);st.add(beacon);const bhalo=halo(0xff2a1a,14,V(0,12,33),.9,st);
+const dish=new T.Mesh(new T.SphereGeometry(5,24,12,0,6.283,0,.9),cm.clone());dish.material.side=T.DoubleSide;dish.position.set(0,14,-20);dish.rotation.x=-1.2;st.add(dish);
+[[-4,8.6,-8],[5,9,18],[2,8.8,-30]].forEach(([x,y,z])=>{const m=new T.Mesh(new T.CylinderGeometry(.08,.14,7,6),cm);m.position.set(x,y+3.2,z);st.add(m);blink.push(halo(0xff3322,3.2,V(x,y+6.8,z),1,st))});
+for(let i=0;i<12;i++){const a=i*Math.PI/6;halo(0xffb347,1.5,V(Math.cos(a)*7,Math.sin(a)*7,35.3),.9,st)}
+[-18,10].forEach(z=>{const l=new T.PointLight(0x9fc4ff,.9,34);l.position.set(0,13,z);st.add(l)});
+/* rails you can grab */
+const rp=[];for(let k=0;k<14;k++)for(let j=0;j<8;j++){const a=j*Math.PI/4+(k%2)*.4;rp.push(V(Math.cos(a)*8.7,Math.sin(a)*8.7,-196-5*k))}
+const rm=new T.InstancedMesh(new T.SphereGeometry(.17,10,8),new T.MeshStandardMaterial({color:0x8fb4c8,emissive:0x2f8aaa,emissiveIntensity:1.3,metalness:.6,roughness:.35}),rp.length),M=new T.Matrix4();
+rp.forEach((p,i)=>{M.setPosition(p);rm.setMatrixAt(i,M)});sc.add(rm);
+/* power cells */
+const cells=[[-.5,-212],[2.6,-238],[4.6,-258]].map(([a,z])=>{const m=new T.Mesh(new T.IcosahedronGeometry(.32,1),new T.MeshBasicMaterial({color:0xffb347}));m.position.set(Math.cos(a)*9.3,Math.sin(a)*9.3,z);sc.add(m);halo(0xffb347,3.4,V(0,0,0),.85,m);return m});
+/* drifting rocks */
+const rocks=[],rg=new T.IcosahedronGeometry(1,2),rmat=new T.MeshStandardMaterial({map:rockTex,bumpMap:rockTex,bumpScale:3,roughness:1});
+{const q=rg.attributes.position;for(let i=0;i<q.count;i++){const x=q.getX(i),y=q.getY(i),z=q.getZ(i),k=1+.26*Math.sin(x*3.1+y*1.7)*Math.cos(z*2.9-x*1.3)+.1*Math.sin(y*7+z*5);q.setXYZ(i,x*k,y*k,z*k)}rg.computeVertexNormals()}
+for(let i=0;i<45;i++){const m=new T.Mesh(rg,rmat);m.position.set((R()-.5)*160,(R()-.5)*90,-20-R()*150);if(Math.abs(m.position.x)<14&&Math.abs(m.position.y)<14)m.position.x+=32;const s=1.5+R()*6;m.scale.set(s,s*(.6+R()*.6),s);m.userData.sp=V(R()-.5,R()-.5,0).multiplyScalar(.12);sc.add(m);rocks.push(m)}
+/* cockpit and parked ship */
+const cockpit=new T.Group();rig.add(cockpit);
+[[0,.9,-.6,1.5,.1,.55],[-.85,1.5,-.2,.07,1.4,.07],[.85,1.5,-.2,.07,1.4,.07],[0,2.15,-.25,1.8,.07,.07],[0,0,0,2.2,.04,2.2]].forEach(([x,y,z,w,h,d])=>{const m=new T.Mesh(new T.BoxGeometry(w,h,d),cm);m.position.set(x,y,z);cockpit.add(m)});
+const ds=new T.Mesh(new T.BoxGeometry(1.2,.012,.12),new T.MeshBasicMaterial({color:0x7a4a10}));ds.position.set(0,.955,-.5);cockpit.add(ds);
+const shipW=new T.Group(),sm=new T.MeshStandardMaterial({color:0x56657a,metalness:.5,roughness:.5});
+shipW.add(new T.Mesh(new T.BoxGeometry(2.4,1.2,5),sm));
+const nose=new T.Mesh(new T.ConeGeometry(1.2,2.5,4),sm);nose.rotation.x=-Math.PI/2;nose.rotation.z=Math.PI/4;nose.position.z=-3.7;shipW.add(nose);
+const nl=new T.Mesh(new T.SphereGeometry(.12,8,6),new T.MeshBasicMaterial({color:0xffb347}));nl.position.set(1.3,.6,1);shipW.add(nl);shipW.visible=false;sc.add(shipW);
+/* the Quiet */
+const ent=new T.Group(),body=new T.Mesh(new T.IcosahedronGeometry(1.1,1),new T.MeshStandardMaterial({color:0x050506,roughness:.2,metalness:.9}));body.scale.set(.55,1.9,.55);ent.add(body);
+const ey=new T.Mesh(new T.SphereGeometry(.08,8,6),new T.MeshBasicMaterial({color:0xff2a1a}));ey.position.set(-.12,1.3,.4);const ey2=ey.clone();ey2.position.x=.12;ent.add(ey,ey2);halo(0xff2a1a,1.3,V(-.12,1.3,.45),1,ent);halo(0xff2a1a,1.3,V(.12,1.3,.45),1,ent);for(let i=0;i<6;i++){const l=new T.Mesh(new T.CylinderGeometry(.02,.07,2.6,5),body.material);l.position.set((R()-.5)*1.1,.2+R()*.8,(R()-.5)*.6);l.rotation.set((R()-.5)*1.6,0,(R()-.5)*1.6);ent.add(l)}
+const el=new T.PointLight(0xff1a0a,0,14);ent.add(el);ent.visible=false;sc.add(ent);
+/* canvas panels */
+function mk(w,h,sw,sh){const c=document.createElement('canvas');c.width=w;c.height=h;const t=new T.CanvasTexture(c);t.encoding=T.sRGBEncoding;const m=new T.Mesh(new T.PlaneGeometry(sw,sh),new T.MeshBasicMaterial({map:t,transparent:true,depthTest:false,fog:false,toneMapped:false}));m.renderOrder=999;return{c:c.getContext('2d'),t,m}}
+const hud=mk(256,160,.2,.125),msg=mk(1024,160,1.5,.234);msg.m.visible=false;sc.add(msg.m);
+const bg=new T.ConeGeometry(4.6,22,20,1,true);bg.translate(0,-11,0);bg.rotateX(Math.PI/2);const beam=new T.Mesh(bg,new T.MeshBasicMaterial({color:0xcfe4ff,transparent:true,opacity:.045,blending:T.AdditiveBlending,depthWrite:false,side:T.DoubleSide,fog:false}));
+const fg=new T.ConeGeometry(.045,.32,10,1,true);fg.translate(0,-.16,0);fg.rotateX(-Math.PI/2);const flame=new T.Mesh(fg,new T.MeshBasicMaterial({color:0x9fe0ff,transparent:true,opacity:.75,blending:T.AdditiveBlending,depthWrite:false,side:T.DoubleSide,fog:false}));flame.visible=false;
+let curTxt='',msgT=0;
+function say(t,s=5){msgT=s;msg.m.visible=true;if(t!==curTxt){curTxt=t;const x=msg.c;x.clearRect(0,0,1024,160);x.fillStyle='rgba(5,6,10,.72)';x.fillRect(0,0,1024,160);x.fillStyle='#d9e4ea';x.textAlign='center';x.font='46px Arial';const L=t.split('|');L.forEach((s2,i)=>x.fillText(s2,512,(L.length>1?66:92)+i*52));msg.t.needsUpdate=true}}
+/* controllers */
+const ctl=[0,1].map(i=>{const c=rd.xr.getController(i);rig.add(c);
+ c.addEventListener('connected',e=>{c.userData.gp=e.data.gamepad;c.userData.hand=e.data.handedness;
+  const m=new T.Mesh(new T.CylinderGeometry(.015,.02,.12,8),new T.MeshStandardMaterial({color:0x222a33}));m.rotation.x=Math.PI/2;c.add(m);
+  if(e.data.handedness=='left'){const sl=new T.SpotLight(0xdfeeff,3,60,.22,.4,1);sl.target.position.set(0,0,-1);c.add(sl,sl.target);hud.m.position.set(0,.07,.03);hud.m.rotation.x=-1.2;c.add(hud.m,beam)}if(e.data.handedness=='right')c.add(flame)});
+ c.addEventListener('disconnected',()=>{c.userData.gp=null});return c});
+const H=h=>ctl.find(c=>c.userData.hand===h),bt=(c,i)=>{const g=c&&c.userData.gp;return !!(g&&g.buttons[i]&&g.buttons[i].pressed)};
+const wp=(c,o)=>o.copy(c.position).add(rig.position),fw=c=>V(0,0,-1).applyQuaternion(c.quaternion);
+/* audio */
+let AC,dg;
+function startAudio(){try{AC=new(window.AudioContext||window.webkitAudioContext)();dg=AC.createGain();dg.gain.value=.05;dg.connect(AC.destination);[41,43.3].forEach(f=>{const o=AC.createOscillator();o.frequency.value=f;o.connect(dg);o.start()})}catch(e){}}
+function thump(){if(!AC)return;const o=AC.createOscillator(),g=AC.createGain(),n=AC.currentTime;o.frequency.value=55;g.gain.setValueAtTime(.0001,n);g.gain.exponentialRampToValueAtTime(.5,n+.03);g.gain.exponentialRampToValueAtTime(.0001,n+.35);o.connect(g);g.connect(AC.destination);o.start();o.stop(n+.4)}
+/* state */
+let mode,state,O2,fuel,jet,got,stT=0,aPrev=false,hudT=0,beatT=0,last=0;const vel=V(0,0,0),P=V(0,0,0),Q=V(0,0,0),hp=V(0,0,0);
+function reset(){rig.position.set(0,0,0);vel.set(0,0,0);mode='ship';state='play';O2=100;fuel=100;jet=100;got=0;cells.forEach(c=>c.visible=true);ent.visible=false;shipW.visible=false;cockpit.visible=true;say('Reach the red beacon on the Hollow.|Trigger thrusts. Grip brakes.',9)}
+function die(t){state='dead';stT=0;say(t+'|Trigger to try again.',1e9)}
+function eva(){mode='eva';cockpit.visible=false;shipW.position.copy(rig.position).add(V(0,3.2,0));shipW.visible=true;vel.multiplyScalar(.2);say('Grip the glowing rails to pull yourself.|Trigger fires the jet. Find 3 amber cells.',9)}
+function drawHud(){const x=hud.c;x.clearRect(0,0,256,160);x.fillStyle='rgba(5,6,10,.78)';x.fillRect(0,0,256,160);
+ const bar=(y,l,val,col)=>{x.fillStyle='#8a98a3';x.font='20px Arial';x.fillText(l,10,y);x.fillStyle='#1b2530';x.fillRect(80,y-16,160,16);x.fillStyle=col;x.fillRect(80,y-16,1.6*Math.max(0,val),16)};
+ bar(28,'Air',O2,O2<25?'#c0392b':'#7fd6e8');bar(58,mode=='ship'?'Fuel':'Jet',mode=='ship'?fuel:jet,'#ffb347');
+ x.fillStyle='#d9e4ea';x.font='22px Arial';x.fillText('Cells '+got+' of 3',10,96);x.fillText('Speed '+vel.length().toFixed(1)+' m/s',10,126);hud.t.needsUpdate=true}
+/* loop */
+rd.setAnimationLoop(t=>{
+ const dt=Math.min(.05,(t-last)/1000)||.016;last=t;
+ const xr=rd.xr.isPresenting,prev=rig.position.clone();
+ rocks.forEach(r=>{r.rotation.x+=r.userData.sp.x*dt;r.rotation.y+=r.userData.sp.y*dt});
+ const bf=1.5+Math.sin(t/260)+(R()<.04?-1.4:0);beacon.intensity=bf;bhalo.material.opacity=Math.max(.15,bf/2.5);hm.emissiveIntensity=R()<.03?.15:.9;blink.forEach((h,i)=>h.material.opacity=(t/700+i*.8)%2<.2?1:.05);cells.forEach((m,i)=>{m.rotation.y+=dt;m.scale.setScalar(1+.12*Math.sin(t/300+i))});
+ if(!xr){const a=t/7000;rig.position.set(0,0,0);cam.position.set(Math.sin(a)*16,7,-150);cam.lookAt(0,0,-230)}
+ else{
+  const Rh=H('right'),Lh=H('left'),aNow=bt(Rh,4);let tension=0;flame.visible=state=='play'&&bt(Rh,0)&&(mode=='ship'?fuel>0:jet>0);flame.scale.set(1,1,.7+R()*.6);
+  if(state=='play'){
+   if(mode=='ship'){
+    if(bt(Rh,0)&&fuel>0){vel.addScaledVector(fw(Rh),7*dt);fuel-=3*dt}
+    if((bt(Rh,1)||bt(Lh,1))&&fuel>0){vel.multiplyScalar(1-1.8*dt);fuel-=1.5*dt}
+    vel.clampLength(0,16);rig.position.addScaledVector(vel,dt);
+    if(rig.position.distanceTo(DOCK)<9&&vel.length()<5){say('Press A to step outside',.3);if(aNow&&!aPrev)eva()}
+    else if(fuel<=0&&vel.length()<.5)die('Adrift with no fuel.');
+   }else{
+    let gr=0;const mv=V(0,0,0);
+    ctl.forEach(c=>{if(!c.userData.gp)return;const g=bt(c,1);wp(c,P);
+     if(g&&!c.userData.g){let b=null,bd=.8;rp.forEach(r=>{const dd=P.distanceTo(r);if(dd<bd){bd=dd;b=r}});c.userData.an=b}
+     if(!g)c.userData.an=null;c.userData.g=g;
+     if(c.userData.an){mv.add(Q.copy(c.userData.an).sub(P));gr++}
+     cells.forEach(m=>{if(m.visible&&P.distanceTo(m.position)<.8){m.visible=false;got++;O2=Math.min(100,O2+12);say(got<3?'Power cell '+got+' of 3. Something moved out there.':'All three cells. Back to the ship.',6)}})});
+    if(gr){mv.divideScalar(gr);rig.position.add(mv);vel.lerp(Q.copy(mv).divideScalar(dt),.35).clampLength(0,5)}
+    else{if(bt(Rh,0)&&jet>0){vel.addScaledVector(fw(Rh),2.6*dt);jet-=4*dt}vel.clampLength(0,8);rig.position.addScaledVector(vel,dt)}
+    O2-=.3*dt;if(O2<=0)die('Out of air.');
+    if(got>0&&state=='play'){
+     if(!ent.visible){ent.visible=true;ent.position.copy(rig.position).add(Q.set(R()-.5,R()-.5,R()-.5).setLength(48))}
+     let lit=false;if(Lh){wp(Lh,P);Q.copy(ent.position).sub(P);const ds2=Q.length();lit=ds2<40&&Q.normalize().dot(fw(Lh))>.97}
+     Q.copy(rig.position).sub(ent.position);const d=Q.length();Q.normalize();
+     ent.position.addScaledVector(Q,(lit?-1.2:1.1+.55*got)*dt);ent.lookAt(rig.position);
+     el.intensity=lit?0:1.6+Math.sin(t/110);tension=Math.max(0,1-d/45);
+     if(d<1.5)die('The Quiet reached you.');
+    }
+    if(got==3&&state=='play'&&rig.position.distanceTo(shipW.position)<5){state='win';stT=0;say('Signal sent. The Hollow goes quiet.|Trigger to fly again.',1e9)}
+   }
+   rocks.forEach(r=>{const s=r.scale.x+1.3;if(rig.position.distanceTo(r.position)<s){Q.copy(rig.position).sub(r.position).normalize();vel.reflect(Q).multiplyScalar(.5);rig.position.copy(r.position).addScaledVector(Q,s)}});
+  }else{stT+=dt;if(stT>1.5&&(bt(Rh,0)||bt(Lh,0)))reset()}
+  aPrev=aNow;
+  if(AC){dg.gain.setTargetAtTime(.05+tension*.3,AC.currentTime,.3);beatT-=dt;if(tension>.25&&beatT<=0){thump();setTimeout(thump,170);beatT=1.5-tension}}
+  hudT-=dt;if(hudT<=0){hudT=.2;drawHud()}
+  hp.copy(cam.position).add(rig.position);
+  if(msgT>0){msgT-=dt;if(msgT<=0){msg.m.visible=false;curTxt=''}}
+  msg.m.position.add(Q.copy(rig.position).sub(prev));
+  Q.copy(hp).addScaledVector(V(0,0,-1).applyQuaternion(cam.quaternion),1.3);Q.y-=.28;msg.m.position.lerp(Q,.15);msg.m.lookAt(hp);
+ }
+ far.position.copy(rig.position);for(let i=0;i<dN;i++)for(let k=0;k<3;k++){const o=rig.position.getComponent(k);let d=dp[i*3+k]-o;d-=60*Math.round(d/60);dp[i*3+k]=o+d}dgm.attributes.position.needsUpdate=true;
+ rd.render(sc,cam)});
+/* start screen */
+const go=$('go'),stx=$('st'),ov=$('ov');
+(async()=>{let ok=false;try{ok=!!navigator.xr&&await navigator.xr.isSessionSupported('immersive-vr')}catch(e){}
+ if(!ok){go.disabled=true;stx.textContent='Open this page in the Meta Quest browser to play. Here you only see the station from outside.'}})();
+go.onclick=async()=>{try{const s=await navigator.xr.requestSession('immersive-vr',{optionalFeatures:['local-floor']});rd.xr.setReferenceSpaceType('local-floor');await rd.xr.setSession(s);startAudio();reset();ov.style.display='none';s.addEventListener('end',()=>{ov.style.display='flex'})}catch(e){stx.textContent='Could not start VR: '+e.message}};
+onresize=()=>{if(!rd.xr.isPresenting){cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();rd.setSize(innerWidth,innerHeight)}};
+reset();
+</script></body></html>
