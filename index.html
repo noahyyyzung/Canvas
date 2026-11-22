@@ -1,0 +1,776 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>CITY LIMITS VR — Stage 1: VR Foundation & Safehouse</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    :root {
+      --bg-dark: #070b14;
+      --panel: rgba(11, 18, 32, 0.88);
+      --panel-solid: #0c1424;
+      --cobalt: #2563eb;
+      --cobalt-bright: #3b82f6;
+      --cobalt-glow: rgba(59, 130, 246, 0.35);
+      --border: rgba(59, 130, 246, 0.28);
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --success: #22c55e;
+      --danger: #ef4444;
+      --warn: #f59e0b;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg-dark);
+      color: var(--text);
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    #canvas-container {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+
+    /* HUD */
+    #hud {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      pointer-events: none;
+      display: none;
+    }
+
+    .hud-top {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      right: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .hud-pill {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(10px);
+      border-radius: 12px;
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      pointer-events: auto;
+    }
+
+    .hud-title {
+      font-weight: 800;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      color: var(--cobalt-bright);
+    }
+
+    .hud-stat {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .hud-stat span {
+      color: var(--muted);
+      font-weight: 500;
+      font-size: 11px;
+      margin-right: 4px;
+    }
+
+    .hud-cash {
+      color: var(--success);
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    .hud-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      pointer-events: auto;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn:hover {
+      background: rgba(30, 58, 138, 0.55);
+      border-color: var(--cobalt-bright);
+    }
+
+    .btn:active {
+      transform: scale(0.97);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      border-color: #60a5fa;
+      color: #fff;
+      box-shadow: 0 4px 16px var(--cobalt-glow);
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+    }
+
+    .btn-danger {
+      background: rgba(127, 29, 29, 0.55);
+      border-color: rgba(239, 68, 68, 0.5);
+      color: #fecaca;
+    }
+
+    .btn-danger:hover {
+      background: rgba(185, 28, 28, 0.75);
+      border-color: #ef4444;
+    }
+
+    .btn-sm {
+      padding: 6px 10px;
+      font-size: 12px;
+      border-radius: 8px;
+    }
+
+    /* Crosshair & Interaction Prompt */
+    #crosshair {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 8px;
+      height: 8px;
+      margin: -4px 0 0 -4px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.75);
+      box-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
+      transition: transform 0.12s ease, background 0.12s ease;
+    }
+
+    #crosshair.active {
+      transform: scale(1.65);
+      background: var(--cobalt-bright);
+      box-shadow: 0 0 12px var(--cobalt-bright);
+    }
+
+    #interact-prompt {
+      position: absolute;
+      top: calc(50% + 22px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--panel);
+      border: 1px solid var(--cobalt-bright);
+      border-radius: 10px;
+      padding: 7px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      opacity: 0;
+      transition: opacity 0.12s ease;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+    }
+
+    #interact-prompt.visible {
+      opacity: 1;
+    }
+
+    #interact-prompt .key-badge {
+      display: inline-block;
+      background: var(--cobalt);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 5px;
+      margin-right: 6px;
+    }
+
+    /* Held Item Indicator */
+    #held-indicator {
+      position: absolute;
+      bottom: 22px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 16px;
+      font-size: 13px;
+      color: var(--text);
+      display: none;
+      align-items: center;
+      gap: 10px;
+      pointer-events: none;
+    }
+
+    /* Toast */
+    #toast-container {
+      position: fixed;
+      bottom: 72px;
+      right: 16px;
+      z-index: 50;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    .toast {
+      background: var(--panel-solid);
+      border: 1px solid var(--cobalt-bright);
+      border-left: 4px solid var(--cobalt-bright);
+      color: var(--text);
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+      animation: slideIn 0.2s ease;
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Controls hint bar */
+    #controls-hint {
+      position: absolute;
+      bottom: 14px;
+      left: 14px;
+      background: rgba(7, 11, 20, 0.72);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 10px;
+      padding: 7px 12px;
+      font-size: 11px;
+      color: var(--muted);
+      max-width: 440px;
+      line-height: 1.45;
+    }
+
+    #controls-hint strong {
+      color: var(--text);
+    }
+
+    /* Touch Controls */
+    #touch-controls {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: none;
+    }
+
+    .touch-pad {
+      position: absolute;
+      bottom: 24px;
+      left: 20px;
+      width: 116px;
+      height: 116px;
+      border-radius: 50%;
+      background: rgba(15, 23, 42, 0.55);
+      border: 1px solid var(--border);
+      pointer-events: auto;
+      touch-action: none;
+    }
+
+    .touch-knob {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 44px;
+      height: 44px;
+      margin: -22px 0 0 -22px;
+      border-radius: 50%;
+      background: var(--cobalt-bright);
+      opacity: 0.85;
+    }
+
+    .touch-buttons {
+      position: absolute;
+      bottom: 24px;
+      right: 20px;
+      display: flex;
+      gap: 8px;
+      pointer-events: auto;
+    }
+
+    /* Overlays & Modals */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      background: radial-gradient(circle at 50% 20%, rgba(30, 58, 138, 0.35), rgba(7, 11, 20, 0.94));
+      backdrop-filter: blur(12px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      overflow-y: auto;
+    }
+
+    .overlay.hidden {
+      display: none;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 760px;
+      background: var(--panel-solid);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 24px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65);
+    }
+
+    .brand-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 18px;
+      flex-wrap: wrap;
+    }
+
+    .brand-badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--cobalt-bright);
+      background: rgba(37, 99, 235, 0.16);
+      border: 1px solid rgba(59, 130, 246, 0.35);
+      padding: 4px 10px;
+      border-radius: 999px;
+      margin-bottom: 8px;
+    }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 900;
+      letter-spacing: 0.04em;
+      line-height: 1.1;
+    }
+
+    .subtitle {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    .xr-status-badge {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 10px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    .xr-status-badge.ready {
+      border-color: rgba(34, 197, 94, 0.55);
+      color: #86efac;
+    }
+
+    .slots-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin: 16px 0;
+    }
+
+    @media (max-width: 680px) {
+      .slots-grid {
+        grid-template-columns: 1fr;
+      }
+      #controls-hint {
+        display: none;
+      }
+    }
+
+    .slot-card {
+      background: rgba(15, 23, 42, 0.78);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 14px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 12px;
+      cursor: pointer;
+      transition: border-color 0.15s ease, transform 0.12s ease, background 0.15s ease;
+    }
+
+    .slot-card:hover {
+      border-color: var(--cobalt-bright);
+      background: rgba(30, 58, 138, 0.22);
+    }
+
+    .slot-card.selected {
+      border-color: var(--cobalt-bright);
+      box-shadow: 0 0 0 2px var(--cobalt-glow);
+      background: rgba(37, 99, 235, 0.16);
+    }
+
+    .slot-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--cobalt-bright);
+      text-transform: uppercase;
+    }
+
+    .slot-name {
+      font-size: 16px;
+      font-weight: 700;
+      margin-top: 4px;
+    }
+
+    .slot-meta {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+      margin-top: 4px;
+    }
+
+    .slot-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .name-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .input {
+      flex: 1;
+      min-width: 180px;
+      background: #070b14;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 14px;
+      outline: none;
+    }
+
+    .input:focus {
+      border-color: var(--cobalt-bright);
+    }
+
+    .launch-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      margin-top: 12px;
+    }
+
+    .modal-section {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(148, 163, 184, 0.16);
+    }
+
+    .modal-section h3 {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--cobalt-bright);
+      margin-bottom: 10px;
+    }
+
+    .setting-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+      font-size: 13px;
+    }
+
+    .setting-row input[type="range"] {
+      width: 160px;
+      accent-color: var(--cobalt-bright);
+    }
+
+    .inv-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 8px;
+    }
+
+    .inv-item {
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 12px;
+    }
+
+    .inv-item strong {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 2px;
+    }
+
+    .inv-item span {
+      color: var(--muted);
+    }
+
+    .controls-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    @media (max-width: 600px) {
+      .controls-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .controls-box {
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 10px;
+      padding: 10px 12px;
+      line-height: 1.6;
+    }
+
+    .controls-box strong {
+      color: var(--text);
+    }
+
+    .confirm-box {
+      max-width: 400px;
+      text-align: center;
+    }
+
+    .confirm-box p {
+      font-size: 14px;
+      color: var(--muted);
+      margin: 10px 0 18px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div id="canvas-container"></div>
+
+  <!-- In-Game HUD -->
+  <div id="hud">
+    <div class="hud-top">
+      <div class="hud-pill">
+        <div>
+          <div class="hud-title">CITY LIMITS VR</div>
+          <div class="hud-stat" id="hud-location">Eastside — Apt 4B</div>
+        </div>
+        <div class="hud-stat"><span>SLOT</span><b id="hud-slot">1</b></div>
+        <div class="hud-stat"><span>LVL</span><b id="hud-level">1</b></div>
+        <div class="hud-cash" id="hud-cash">$1,250</div>
+      </div>
+
+      <div class="hud-actions">
+        <button class="btn btn-primary btn-sm" id="btn-hud-vr">Enter VR</button>
+        <button class="btn btn-sm" id="btn-hud-terminal">VANTA Pad</button>
+        <button class="btn btn-sm" id="btn-hud-mute">Sound: ON</button>
+        <button class="btn btn-sm" id="btn-hud-pause">Menu</button>
+      </div>
+    </div>
+
+    <div id="crosshair"></div>
+    <div id="interact-prompt"></div>
+    <div id="held-indicator">
+      <span id="held-name">Holding: Object</span>
+      <span style="color: var(--muted); font-size: 11px;">[G] Drop • [T] Toss • [F] Stash</span>
+    </div>
+
+    <div id="controls-hint">
+      <strong>Click view</strong> to look • <strong>WASD</strong> Move • <strong>Shift</strong> Sprint • <strong>Space</strong> Jump • <strong>Q/E</strong> Smooth Turn • <strong>F / Click</strong> Interact • <strong>G</strong> Grab/Drop • <strong>ESC</strong> Menu
+    </div>
+
+    <div id="touch-controls">
+      <div class="touch-pad" id="touch-move-pad">
+        <div class="touch-knob" id="touch-move-knob"></div>
+      </div>
+      <div class="touch-buttons">
+        <button class="btn btn-primary btn-sm" id="btn-touch-interact">Interact</button>
+        <button class="btn btn-sm" id="btn-touch-grab">Grab</button>
+        <button class="btn btn-sm" id="btn-touch-jump">Jump</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Title / Save Slot Overlay -->
+  <div class="overlay" id="title-overlay">
+    <div class="card">
+      <div class="brand-header">
+        <div>
+          <div class="brand-badge">Stage 1 • VR Foundation &amp; Safehouse</div>
+          <h1>CITY LIMITS VR</h1>
+          <div class="subtitle">San Verano — Standalone WebXR Open-World Sandbox</div>
+        </div>
+        <div class="xr-status-badge" id="xr-status-badge">Checking WebXR...</div>
+      </div>
+
+      <div style="font-size: 13px; color: var(--muted); margin-bottom: 6px;">
+        Select one of your <strong>3 independent save slots</strong> to begin:
+      </div>
+
+      <div class="slots-grid" id="slots-grid"></div>
+
+      <div class="name-row" id="new-char-row">
+        <label for="char-name-input" style="font-size: 13px; font-weight: 600;">Character Name:</label>
+        <input class="input" id="char-name-input" type="text" maxlength="22" placeholder="e.g. Marcus Vance" value="Marcus Vance" />
+      </div>
+
+      <div class="launch-row">
+        <button class="btn" id="btn-play-desktop">Play Desktop 3D</button>
+        <button class="btn btn-primary" id="btn-play-vr">Enter WebXR VR</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pause / VANTA Safehouse Terminal Overlay -->
+  <div class="overlay hidden" id="pause-overlay">
+    <div class="card">
+      <div class="brand-header">
+        <div>
+          <div class="brand-badge">VANTA OS • Safehouse Terminal</div>
+          <h1 id="pause-char-name" style="font-size: 22px;">Marcus Vance</h1>
+          <div class="subtitle" id="pause-slot-info">Slot 1 • Level 1 • $1,250 • Eastside Apt 4B</div>
+        </div>
+        <button class="btn btn-primary btn-sm" id="btn-resume">Resume</button>
+      </div>
+
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <button class="btn btn-primary btn-sm" id="btn-manual-save">Manual Save</button>
+        <button class="btn btn-sm" id="btn-switch-slot">Switch Save Slot</button>
+        <button class="btn btn-sm" id="btn-reset-pos">Reset Position</button>
+      </div>
+
+      <div class="modal-section">
+        <h3>Safehouse Inventory</h3>
+        <div class="inv-grid" id="inv-grid"></div>
+      </div>
+
+      <div class="modal-section">
+        <h3>VR &amp; Locomotion Settings</h3>
+        <div class="setting-row">
+          <span>Smooth Turn Speed (<b id="val-turn-speed">1.8</b> rad/s)</span>
+          <input type="range" id="range-turn-speed" min="0.8" max="3.2" step="0.1" value="1.8" />
+        </div>
+        <div class="setting-row">
+          <span>Walk / Sprint Speed (<b id="val-move-speed">2.6</b> m/s)</span>
+          <input type="range" id="range-move-speed" min="1.6" max="4.0" step="0.1" value="2.6" />
+        </div>
+        <div class="setting-row">
+          <span>Audio Effects</span>
+          <button class="btn btn-sm" id="btn-pause-mute">Sound: ON</button>
+        </div>
+      </div>
+
+      <div class="modal-section">
+        <h3>Controls</h3>
+        <div class="controls-grid">
+          <div class="controls-box">
+            <strong>Meta Quest 3 (WebXR)</strong><br />
+            • Left Stick: Smooth Move (Click: Sprint)<br />
+            • Right Stick: Smooth Turn Only<br />
+            • A / X Button: Jump<br />
+            • Trigger: Interact / Index Finger<br />
+            • Grip: Grab &amp; Release / Fist Curl
+          </div>
+          <div class="controls-box">
+            <strong>Desktop Fallback</strong><br />
+            • WASD: Smooth Move (Shift: Sprint)<br />
+            • Mouse / Q &amp; E: Smooth Turn &amp; Look<br />
+            • Space: Jump<br />
+            • Left Click / F: Interact / Stash<br />
+            • G: Grab / Drop • T: Toss Held Prop
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm Delete Modal -->
+  <div class="overlay hidden" id="confirm-overlay">
+    <div class="card confirm-box">
+      <div class="brand-badge" style="color: #fca5a5; border-color: rgba(239,68,68,0.4); background: rgba(127,29,29,0.25);">Confirm Action</div>
+      <h1 style="font-size: 20px;">Delete Save Slot?</h1>
+      <p id="confirm-message">This will permanently clear all progress in this save slot.</p>
+      <div style="display: flex; gap: 10px; justify-content: center;">
+        <button class="btn" id="btn-confirm-cancel">Cancel</button>
+        <button class="btn btn-danger" id="btn-confirm-ok">Delete Slot</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script>
+    (function () {
+      'use strict';
+
+      // ============================================================
+      // 1. SAVE SYSTEM (3 Independent Slots, GitHub Pages Safe)
+      // ============================================================
+      const SAVE_PREFIX = 'city_limits_vr_v1_slot_';
+      const SLOT_COUNT = 3;
+
+      function createDefaultSlot(slotId, name) {
+        return {
+          slotId: slotId,
+          exists: true,
+ 
