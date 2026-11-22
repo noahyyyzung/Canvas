@@ -1,0 +1,4513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>CITY LIMITS VR — Stage 3: VR Driving &amp; Vehicle Customization</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    :root {
+      --bg-dark: #070b14;
+      --panel: rgba(11, 18, 32, 0.9);
+      --panel-solid: #0c1424;
+      --cobalt: #2563eb;
+      --cobalt-bright: #3b82f6;
+      --cobalt-glow: rgba(59, 130, 246, 0.35);
+      --border: rgba(59, 130, 246, 0.28);
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --success: #22c55e;
+      --danger: #ef4444;
+      --warn: #f59e0b;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg-dark);
+      color: var(--text);
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    #canvas-container {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+
+    /* HUD */
+    #hud {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      pointer-events: none;
+      display: none;
+    }
+
+    .hud-top {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      right: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .hud-pill {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(10px);
+      border-radius: 12px;
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      pointer-events: auto;
+    }
+
+    .hud-title {
+      font-weight: 800;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      color: var(--cobalt-bright);
+    }
+
+    .hud-stat {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .hud-stat span {
+      color: var(--muted);
+      font-weight: 500;
+      font-size: 11px;
+      margin-right: 4px;
+    }
+
+    .hud-cash {
+      color: var(--success);
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    /* GPS Compass Banner */
+    #gps-banner {
+      position: absolute;
+      top: 72px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--panel);
+      border: 1px solid var(--cobalt-bright);
+      border-radius: 999px;
+      padding: 6px 16px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #dbeafe;
+      display: none;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 6px 20px rgba(37, 99, 235, 0.35);
+      pointer-events: auto;
+    }
+
+    #gps-banner button {
+      background: transparent;
+      border: none;
+      color: #93c5fd;
+      cursor: pointer;
+      font-weight: 800;
+      font-size: 12px;
+    }
+
+    #swim-banner {
+      position: absolute;
+      top: 114px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(14, 116, 144, 0.85);
+      border: 1px solid #38bdf8;
+      border-radius: 999px;
+      padding: 4px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #e0f2fe;
+      display: none;
+    }
+
+    .hud-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      pointer-events: auto;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn:hover {
+      background: rgba(30, 58, 138, 0.55);
+      border-color: var(--cobalt-bright);
+    }
+
+    .btn:active {
+      transform: scale(0.97);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      border-color: #60a5fa;
+      color: #fff;
+      box-shadow: 0 4px 16px var(--cobalt-glow);
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+    }
+
+    .btn-danger {
+      background: rgba(127, 29, 29, 0.55);
+      border-color: rgba(239, 68, 68, 0.5);
+      color: #fecaca;
+    }
+
+    .btn-danger:hover {
+      background: rgba(185, 28, 28, 0.75);
+      border-color: #ef4444;
+    }
+
+    .btn-sm {
+      padding: 6px 10px;
+      font-size: 12px;
+      border-radius: 8px;
+    }
+
+    /* Crosshair & Interaction Prompt */
+    #crosshair {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 8px;
+      height: 8px;
+      margin: -4px 0 0 -4px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.75);
+      box-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
+      transition: transform 0.12s ease, background 0.12s ease;
+    }
+
+    #crosshair.active {
+      transform: scale(1.65);
+      background: var(--cobalt-bright);
+      box-shadow: 0 0 12px var(--cobalt-bright);
+    }
+
+    #interact-prompt {
+      position: absolute;
+      top: calc(50% + 22px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--panel);
+      border: 1px solid var(--cobalt-bright);
+      border-radius: 10px;
+      padding: 7px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      opacity: 0;
+      transition: opacity 0.12s ease;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+    }
+
+    #interact-prompt.visible {
+      opacity: 1;
+    }
+
+    #interact-prompt .key-badge {
+      display: inline-block;
+      background: var(--cobalt);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 5px;
+      margin-right: 6px;
+    }
+
+    #held-indicator {
+      position: absolute;
+      bottom: 22px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 16px;
+      font-size: 13px;
+      color: var(--text);
+      display: none;
+      align-items: center;
+      gap: 10px;
+      pointer-events: none;
+    }
+
+    /* Toast */
+    #toast-container {
+      position: fixed;
+      bottom: 72px;
+      right: 16px;
+      z-index: 60;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    .toast {
+      background: var(--panel-solid);
+      border: 1px solid var(--cobalt-bright);
+      border-left: 4px solid var(--cobalt-bright);
+      color: var(--text);
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+      animation: slideIn 0.2s ease;
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    #controls-hint {
+      position: absolute;
+      bottom: 14px;
+      left: 14px;
+      background: rgba(7, 11, 20, 0.74);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 10px;
+      padding: 7px 12px;
+      font-size: 11px;
+      color: var(--muted);
+      max-width: 520px;
+      line-height: 1.45;
+    }
+
+    #controls-hint strong {
+      color: var(--text);
+    }
+
+    /* Touch Controls */
+    #touch-controls {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: none;
+    }
+
+    .touch-pad {
+      position: absolute;
+      bottom: 24px;
+      left: 20px;
+      width: 116px;
+      height: 116px;
+      border-radius: 50%;
+      background: rgba(15, 23, 42, 0.55);
+      border: 1px solid var(--border);
+      pointer-events: auto;
+      touch-action: none;
+    }
+
+    .touch-knob {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 44px;
+      height: 44px;
+      margin: -22px 0 0 -22px;
+      border-radius: 50%;
+      background: var(--cobalt-bright);
+      opacity: 0.85;
+    }
+
+    .touch-buttons {
+      position: absolute;
+      bottom: 24px;
+      right: 20px;
+      display: flex;
+      gap: 8px;
+      pointer-events: auto;
+    }
+
+    /* Overlays & Modals */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      background: radial-gradient(circle at 50% 20%, rgba(30, 58, 138, 0.35), rgba(7, 11, 20, 0.94));
+      backdrop-filter: blur(12px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      overflow-y: auto;
+    }
+
+    .overlay.hidden {
+      display: none;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 780px;
+      background: var(--panel-solid);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 24px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65);
+    }
+
+    .brand-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 18px;
+      flex-wrap: wrap;
+    }
+
+    .brand-badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--cobalt-bright);
+      background: rgba(37, 99, 235, 0.16);
+      border: 1px solid rgba(59, 130, 246, 0.35);
+      padding: 4px 10px;
+      border-radius: 999px;
+      margin-bottom: 8px;
+    }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 900;
+      letter-spacing: 0.04em;
+      line-height: 1.1;
+    }
+
+    .subtitle {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    .xr-status-badge {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 10px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    .xr-status-badge.ready {
+      border-color: rgba(34, 197, 94, 0.55);
+      color: #86efac;
+    }
+
+    .slots-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin: 16px 0;
+    }
+
+    @media (max-width: 680px) {
+      .slots-grid {
+        grid-template-columns: 1fr;
+      }
+      #controls-hint {
+        display: none;
+      }
+    }
+
+    .slot-card {
+      background: rgba(15, 23, 42, 0.78);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 14px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 12px;
+      cursor: pointer;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+
+    .slot-card:hover {
+      border-color: var(--cobalt-bright);
+      background: rgba(30, 58, 138, 0.22);
+    }
+
+    .slot-card.selected {
+      border-color: var(--cobalt-bright);
+      box-shadow: 0 0 0 2px var(--cobalt-glow);
+      background: rgba(37, 99, 235, 0.16);
+    }
+
+    .slot-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--cobalt-bright);
+      text-transform: uppercase;
+    }
+
+    .slot-name {
+      font-size: 16px;
+      font-weight: 700;
+      margin-top: 4px;
+    }
+
+    .slot-meta {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+      margin-top: 4px;
+    }
+
+    .slot-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .name-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .input {
+      flex: 1;
+      min-width: 180px;
+      background: #070b14;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 14px;
+      outline: none;
+    }
+
+    .input:focus {
+      border-color: var(--cobalt-bright);
+    }
+
+    .launch-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      margin-top: 12px;
+    }
+
+    .modal-section {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(148, 163, 184, 0.16);
+    }
+
+    .modal-section h3 {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--cobalt-bright);
+      margin-bottom: 10px;
+    }
+
+    .setting-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+      font-size: 13px;
+    }
+
+    .setting-row input[type="range"] {
+      width: 160px;
+      accent-color: var(--cobalt-bright);
+    }
+
+    .inv-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 8px;
+    }
+
+    .inv-item {
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 12px;
+    }
+
+    .inv-item strong {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 2px;
+    }
+
+    .inv-item span {
+      color: var(--muted);
+    }
+
+    .controls-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    @media (max-width: 600px) {
+      .controls-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .controls-box {
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 10px;
+      padding: 10px 12px;
+      line-height: 1.6;
+    }
+
+    .controls-box strong {
+      color: var(--text);
+    }
+
+    .confirm-box {
+      max-width: 400px;
+      text-align: center;
+    }
+
+    .confirm-box p {
+      font-size: 14px;
+      color: var(--muted);
+      margin: 10px 0 18px;
+      line-height: 1.5;
+    }
+
+    /* ============================================================
+       VANTA SMARTPHONE OS OVERLAY
+       ============================================================ */
+    #vanta-overlay {
+      z-index: 35;
+      background: rgba(4, 8, 16, 0.76);
+    }
+
+    .vanta-shell {
+      width: 100%;
+      max-width: 840px;
+      max-height: 90vh;
+      background: #060b16;
+      border: 2px solid #2563eb;
+      border-radius: 26px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 28px 70px rgba(0, 0, 0, 0.8), 0 0 36px rgba(37, 99, 235, 0.25);
+    }
+
+    .vanta-shell.wp-cobalt {
+      background: radial-gradient(circle at 20% 20%, #102454 0%, #060b16 65%);
+    }
+    .vanta-shell.wp-carbon {
+      background: linear-gradient(160deg, #0b1120 0%, #030712 100%);
+    }
+    .vanta-shell.wp-harbor {
+      background: radial-gradient(circle at 80% 10%, #0c3547 0%, #060b16 70%);
+    }
+    .vanta-shell.wp-sunset {
+      background: linear-gradient(150deg, #1e1b4b 0%, #0f172a 55%, #060b16 100%);
+    }
+
+    .vanta-statusbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 18px;
+      background: rgba(2, 6, 16, 0.85);
+      border-bottom: 1px solid rgba(59, 130, 246, 0.22);
+      font-size: 12px;
+      font-weight: 700;
+      color: #bfdbfe;
+    }
+
+    .vanta-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 18px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+      gap: 10px;
+    }
+
+    .vanta-app-title {
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      color: #f8fafc;
+    }
+
+    .vanta-body {
+      padding: 16px 18px;
+      overflow-y: auto;
+      flex: 1;
+      min-height: 360px;
+    }
+
+    .vanta-app-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      max-width: 560px;
+      margin: 8px auto;
+    }
+
+    @media (max-width: 520px) {
+      .vanta-app-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    .vanta-app-tile {
+      background: rgba(15, 23, 42, 0.78);
+      border: 1px solid rgba(59, 130, 246, 0.28);
+      border-radius: 16px;
+      padding: 16px 10px;
+      text-align: center;
+      cursor: pointer;
+      transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease;
+    }
+
+    .vanta-app-tile:hover {
+      transform: translateY(-2px);
+      border-color: #60a5fa;
+      background: rgba(37, 99, 235, 0.22);
+    }
+
+    .vanta-app-icon {
+      width: 52px;
+      height: 52px;
+      margin: 0 auto 8px;
+      border-radius: 13px;
+      background: linear-gradient(145deg, #2563eb, #1e3a8a);
+      border: 1.5px solid rgba(255, 255, 255, 0.22);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+    }
+    .vanta-app-icon svg {
+      width: 28px;
+      height: 28px;
+      fill: #ffffff;
+      filter: drop-shadow(0 2px 3px rgba(0,0,0,0.45));
+    }
+    .legend-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .legend-icon svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .vanta-app-label {
+      font-size: 13px;
+      font-weight: 700;
+      color: #f1f5f9;
+    }
+
+    .vanta-app-sub {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    /* SV Maps Canvas inside VANTA */
+    .map-wrap {
+      display: grid;
+      grid-template-columns: 1fr 220px;
+      gap: 14px;
+      align-items: start;
+    }
+
+    @media (max-width: 720px) {
+      .map-wrap {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    #sv-map-canvas {
+      width: 100%;
+      height: 360px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: #071226;
+      cursor: crosshair;
+      display: block;
+    }
+
+    .map-sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      font-size: 12px;
+    }
+
+    .filter-chip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      border-radius: 8px;
+      padding: 6px 10px;
+      cursor: pointer;
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .filter-chip.off {
+      opacity: 0.45;
+    }
+
+    .vanta-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .vanta-row {
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 12px;
+      padding: 12px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .vanta-row strong {
+      font-size: 14px;
+      display: block;
+    }
+
+    .vanta-row span {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .stat-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+      gap: 10px;
+    }
+
+    .stat-card {
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(59, 130, 246, 0.24);
+      border-radius: 12px;
+      padding: 12px;
+    }
+
+    .stat-card .lbl {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .stat-card .val {
+      font-size: 20px;
+      font-weight: 800;
+      color: #f8fafc;
+      margin-top: 4px;
+    }
+
+    .photo-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .photo-thumb {
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: #020617;
+    }
+
+    .photo-thumb img {
+      width: 100%;
+      height: 110px;
+      object-fit: cover;
+      display: block;
+    }
+
+    .photo-thumb div {
+      padding: 6px 8px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    /* Driving HUD */
+    #drive-hud {
+      position: absolute;
+      bottom: 66px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--panel);
+      border: 1px solid var(--cobalt-bright);
+      border-radius: 14px;
+      padding: 10px 18px;
+      display: none;
+      align-items: center;
+      gap: 16px;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+      pointer-events: auto;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .speedo-val {
+      font-size: 24px;
+      font-weight: 900;
+      color: #60a5fa;
+      line-height: 1;
+    }
+    .speedo-unit {
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .dmg-bar-wrap {
+      width: 90px;
+      height: 8px;
+      background: #1e293b;
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 4px;
+    }
+    .dmg-bar-fill {
+      height: 100%;
+      background: #22c55e;
+      width: 100%;
+      transition: width 0.15s ease, background 0.15s ease;
+    }
+    .mod-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .swatch-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+    .swatch-btn {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.35);
+      cursor: pointer;
+    }
+    .swatch-btn.active {
+      border-color: #ffffff;
+      box-shadow: 0 0 0 2px #3b82f6;
+    }
+  </style>
+</head>
+<body>
+  <div id="canvas-container"></div>
+
+  <!-- In-Game HUD -->
+  <div id="hud">
+    <div class="hud-top">
+      <div class="hud-pill">
+        <div>
+          <div class="hud-title">CITY LIMITS VR</div>
+          <div class="hud-stat" id="hud-location">Eastside — Apt 4B</div>
+        </div>
+        <div class="hud-stat"><span>SLOT</span><b id="hud-slot">1</b></div>
+        <div class="hud-stat"><span>LVL</span><b id="hud-level">1</b></div>
+        <div class="hud-cash" id="hud-cash">$1,250</div>
+      </div>
+
+      <div class="hud-actions">
+        <button class="btn btn-primary btn-sm" id="btn-hud-vr">Enter VR</button>
+        <button class="btn btn-primary btn-sm" id="btn-hud-phone">VANTA Phone [P]</button>
+        <button class="btn btn-sm" id="btn-hud-terminal">VANTA Pad</button>
+        <button class="btn btn-sm" id="btn-hud-mute">Sound: ON</button>
+        <button class="btn btn-sm" id="btn-hud-pause">Menu</button>
+      </div>
+    </div>
+
+    <div id="gps-banner">
+      <span id="gps-text">GPS: Downtown Pawn — 85m</span>
+      <button id="btn-clear-gps" title="Clear GPS">✕</button>
+    </div>
+
+    <div id="swim-banner">SWIMMING — Harbor Water (Swim to dock ramp to exit)</div>
+    <div id="drive-hud">
+      <div style="text-align:center;">
+        <div class="speedo-val" id="drive-speed">0</div>
+        <div class="speedo-unit">MPH</div>
+      </div>
+      <div>
+        <div style="font-size:13px; font-weight:700;" id="drive-car-name">Verano GT Coupe</div>
+        <div style="font-size:11px; color:var(--muted);" id="drive-car-status">OWNED • Body 100%</div>
+        <div class="dmg-bar-wrap"><div class="dmg-bar-fill" id="drive-health-bar"></div></div>
+      </div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap;">
+        <button class="btn btn-sm" id="btn-toggle-steer">Steer: Joystick</button>
+        <button class="btn btn-primary btn-sm" id="btn-open-modshop" style="display:none;">Open Mod Shop</button>
+        <button class="btn btn-danger btn-sm" id="btn-exit-vehicle">Exit [F]</button>
+      </div>
+    </div>
+
+    <div id="crosshair"></div>
+    <div id="interact-prompt"></div>
+    <div id="held-indicator">
+      <span id="held-name">Holding: Object</span>
+      <span style="color: var(--muted); font-size: 11px;">[G] Drop • [T] Toss • [F] Stash</span>
+    </div>
+
+    <div id="controls-hint">
+      <strong>Click view</strong> to look • <strong>WASD</strong> Move • <strong>Shift</strong> Sprint • <strong>Space</strong> Jump • <strong>Q/E</strong> Smooth Turn • <strong>P</strong> VANTA Phone • <strong>M</strong> SV Maps • <strong>F</strong> Interact • <strong>G</strong> Grab
+    </div>
+
+    <div id="touch-controls">
+      <div class="touch-pad" id="touch-move-pad">
+        <div class="touch-knob" id="touch-move-knob"></div>
+      </div>
+      <div class="touch-buttons">
+        <button class="btn btn-primary btn-sm" id="btn-touch-phone">VANTA</button>
+        <button class="btn btn-primary btn-sm" id="btn-touch-interact">Interact</button>
+        <button class="btn btn-sm" id="btn-touch-grab">Grab</button>
+        <button class="btn btn-sm" id="btn-touch-jump">Jump</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Title / Save Slot Overlay -->
+  <div class="overlay" id="title-overlay">
+    <div class="card">
+      <div class="brand-header">
+        <div>
+          <div class="brand-badge">Stage 3 • VR Driving &amp; Vehicle Customization</div>
+          <h1>CITY LIMITS VR</h1>
+          <div class="subtitle">San Verano Open World • First-Person VR Driving • Auto Mod Shop</div>
+        </div>
+        <div class="xr-status-badge" id="xr-status-badge">Checking WebXR...</div>
+      </div>
+
+      <div style="font-size: 13px; color: var(--muted); margin-bottom: 6px;">
+        Select one of your <strong>3 independent save slots</strong> to begin:
+      </div>
+
+      <div class="slots-grid" id="slots-grid"></div>
+
+      <div class="name-row" id="new-char-row">
+        <label for="char-name-input" style="font-size: 13px; font-weight: 600;">Character Name:</label>
+        <input class="input" id="char-name-input" type="text" maxlength="22" placeholder="e.g. Marcus Vance" value="Marcus Vance" />
+      </div>
+
+      <div class="launch-row">
+        <button class="btn" id="btn-play-desktop">Play Desktop 3D</button>
+        <button class="btn btn-primary" id="btn-play-vr">Enter WebXR VR</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- VANTA Smartphone Overlay -->
+  <div class="overlay hidden" id="vanta-overlay">
+    <div class="vanta-shell wp-cobalt" id="vanta-shell">
+      <div class="vanta-statusbar">
+        <span id="vanta-clock">VANTA OS • 12:00 PM</span>
+        <span id="vanta-district-bar">Eastside</span>
+        <span>5G • 94% 🔋</span>
+      </div>
+      <div class="vanta-header">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <button class="btn btn-sm" id="btn-vanta-home">Home</button>
+          <div class="vanta-app-title" id="vanta-app-title">VANTA Home</div>
+        </div>
+        <button class="btn btn-primary btn-sm" id="btn-vanta-close">Put Away [P]</button>
+      </div>
+      <div class="vanta-body" id="vanta-body"></div>
+    </div>
+  </div>
+
+  <!-- Pause / Safehouse Terminal Overlay -->
+  <div class="overlay hidden" id="pause-overlay">
+    <div class="card">
+      <div class="brand-header">
+        <div>
+          <div class="brand-badge">VANTA OS • Safehouse Terminal</div>
+          <h1 id="pause-char-name" style="font-size: 22px;">Marcus Vance</h1>
+          <div class="subtitle" id="pause-slot-info">Slot 1 • Level 1 • $1,250 • Eastside Apt 4B</div>
+        </div>
+        <button class="btn btn-primary btn-sm" id="btn-resume">Resume</button>
+      </div>
+
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <button class="btn btn-primary btn-sm" id="btn-manual-save">Manual Save</button>
+        <button class="btn btn-sm" id="btn-open-phone-from-pause">Open VANTA Phone</button>
+        <button class="btn btn-sm" id="btn-switch-slot">Switch Save Slot</button>
+        <button class="btn btn-sm" id="btn-reset-pos">Reset Position</button>
+      </div>
+
+      <div class="modal-section">
+        <h3>Safehouse Inventory</h3>
+        <div class="inv-grid" id="inv-grid"></div>
+      </div>
+
+      <div class="modal-section">
+        <h3>VR &amp; Locomotion Settings</h3>
+        <div class="setting-row">
+          <span>Smooth Turn Speed (<b id="val-turn-speed">1.8</b> rad/s)</span>
+          <input type="range" id="range-turn-speed" min="0.8" max="3.2" step="0.1" value="1.8" />
+        </div>
+        <div class="setting-row">
+          <span>Walk / Sprint Speed (<b id="val-move-speed">3.2</b> m/s)</span>
+          <input type="range" id="range-move-speed" min="1.8" max="5.0" step="0.1" value="3.2" />
+        </div>
+        <div class="setting-row">
+          <span>Audio Effects</span>
+          <button class="btn btn-sm" id="btn-pause-mute">Sound: ON</button>
+        </div>
+      </div>
+
+      <div class="modal-section">
+        <h3>Controls</h3>
+        <div class="controls-grid">
+          <div class="controls-box">
+            <strong>Meta Quest 3 (WebXR)</strong><br />
+            • Left Stick: Smooth Move (Click: Sprint)<br />
+            • Right Stick: Smooth Turn Only<br />
+            • Right Hip + Grip: Draw VANTA Phone (Trigger: Apps)<br />
+            • A / X: Jump • B / Y: Quick VANTA Toggle<br />
+            • Trigger: Interact / Index Finger<br />
+            • Grip: Grab &amp; Release / Fist Curl
+          </div>
+          <div class="controls-box">
+            <strong>Desktop Fallback</strong><br />
+            • WASD: Smooth Move (Shift: Sprint)<br />
+            • Mouse / Q &amp; E: Smooth Turn &amp; Look<br />
+            • Space: Jump • P: VANTA Phone • M: SV Maps<br />
+            • Left Click / F: Interact / Stash<br />
+            • G: Grab / Drop • T: Toss Held Prop
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Southside Auto & Mod Shop Overlay -->
+  <div class="overlay hidden" id="modshop-overlay">
+    <div class="card">
+      <div class="brand-header">
+        <div>
+          <div class="brand-badge">Southside Auto &amp; Mod Shop</div>
+          <h1 id="mod-car-title" style="font-size:22px;">Verano GT Coupe</h1>
+          <div class="subtitle" id="mod-car-sub">Customize paint, wheels, spoiler, tint, interior &amp; performance</div>
+        </div>
+        <button class="btn btn-primary btn-sm" id="btn-mod-close">Done Driving</button>
+      </div>
+      <div id="modshop-body"></div>
+    </div>
+  </div>
+
+  <!-- Confirm Delete Modal -->
+  <div class="overlay hidden" id="confirm-overlay">
+    <div class="card confirm-box">
+      <div class="brand-badge" style="color: #fca5a5; border-color: rgba(239,68,68,0.4); background: rgba(127,29,29,0.25);">Confirm Action</div>
+      <h1 style="font-size: 20px;">Delete Save Slot?</h1>
+      <p id="confirm-message">This will permanently clear all progress in this save slot.</p>
+      <div style="display: flex; gap: 10px; justify-content: center;">
+        <button class="btn" id="btn-confirm-cancel">Cancel</button>
+        <button class="btn btn-danger" id="btn-confirm-ok">Delete Slot</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script>
+    (function () {
+      'use strict';
+
+      // ============================================================
+      // 1. SAVE SYSTEM (3 Independent Slots + Stage 1 Migration)
+      // ============================================================
+      const SAVE_PREFIX = 'city_limits_vr_v1_slot_';
+      const SLOT_COUNT = 3;
+
+      // Starter Apt 4B sits on Eastside Ave at world (62, 0, -14)
+      const APT_ORIGIN = { x: 62, y: 0, z: -14 };
+
+      function createDefaultSlot(slotId, name) {
+        return {
+          slotId: slotId,
+          exists: true,
+          characterName: name || ('Player ' + slotId),
+          lastSaved: new Date().toISOString(),
+          cash: 1250,
+          xp: 0,
+          level: 1,
+          district: 'Eastside — Apt 4B',
+          playerPos: { x: APT_ORIGIN.x, y: 0, z: APT_ORIGIN.z + 1.4, yaw: 0 },
+          safehouse: {
+            lightsOn: true,
+            tvOn: true,
+            frontDoorOpen: false,
+            balconyDoorOpen: false,
+            deskDrawerOpen: false,
+            nightstandOpen: false,
+            safeOpen: false,
+            collectedIds: []
+          },
+          inventory: [
+            { id: 'vanta_phone', name: 'VANTA Smartphone', category: 'Equipment', value: 0 },
+            { id: 'apt_key', name: 'Apt 4B Key Fob', category: 'Miscellaneous', value: 0 }
+          ],
+          ownedProperties: ['prop_apt_4b'],
+          completedMissions: [],
+          activeMissionId: null,
+          visitedDistricts: ['Eastside'],
+          gpsTarget: null,
+          stats: {
+            distanceMeters: 0,
+            playSeconds: 0,
+            photosTaken: 0
+          },
+          ownedVehicles: [
+            {
+              id: 'veh_starter_gt',
+              modelKey: 'verano_gt',
+              name: 'Verano GT Coupe',
+              destroyed: false,
+              health: 100,
+              mods: {
+                paint: '#2563eb',
+                rims: '#cbd5e1',
+                spoiler: 'none',
+                interior: '#1e293b',
+                tint: 0.28,
+                engineLevel: 0,
+                suspension: 'stock'
+              }
+            }
+          ],
+          settings: {
+            turnSpeed: 1.8,
+            moveSpeed: 3.2,
+            muted: false,
+            wallpaper: 'wp-cobalt',
+            steeringMode: 'joystick'
+          }
+        };
+      }
+
+      function migrateSlot(slot) {
+        const def = createDefaultSlot(slot.slotId || 1, slot.characterName);
+        slot.ownedProperties = slot.ownedProperties || def.ownedProperties;
+        slot.completedMissions = slot.completedMissions || [];
+        if (slot.activeMissionId === undefined) slot.activeMissionId = null;
+        slot.visitedDistricts = slot.visitedDistricts || ['Eastside'];
+        if (slot.gpsTarget === undefined) slot.gpsTarget = null;
+        slot.stats = Object.assign({}, def.stats, slot.stats || {});
+        slot.settings = Object.assign({}, def.settings, slot.settings || {});
+        slot.safehouse = Object.assign({}, def.safehouse, slot.safehouse || {});
+        if (!slot.ownedVehicles || !slot.ownedVehicles.length) slot.ownedVehicles = def.ownedVehicles;
+        if (!slot.settings.steeringMode) slot.settings.steeringMode = 'joystick';
+        // Migrate Stage 1 local apartment coords (~0,0,1.6) to Stage 2 Eastside Apt 4B
+        if (slot.playerPos && Math.abs(slot.playerPos.x) < 10 && Math.abs(slot.playerPos.z) < 10 && slot.district && slot.district.includes('Apt 4B')) {
+          slot.playerPos = { x: APT_ORIGIN.x, y: 0, z: APT_ORIGIN.z + 1.4, yaw: 0 };
+        }
+        return slot;
+      }
+
+      function readSlot(slotId) {
+        try {
+          const raw = localStorage.getItem(SAVE_PREFIX + slotId);
+          if (!raw) return null;
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.exists) return migrateSlot(parsed);
+        } catch (e) {}
+        return null;
+      }
+
+      function writeSlot(slotData) {
+        slotData.lastSaved = new Date().toISOString();
+        try {
+          localStorage.setItem(SAVE_PREFIX + slotData.slotId, JSON.stringify(slotData));
+          return true;
+        } catch (e) {
+          return false;
+        }
+      }
+
+      function deleteSlot(slotId) {
+        try { localStorage.removeItem(SAVE_PREFIX + slotId); } catch (e) {}
+      }
+
+      // ============================================================
+      // 2. SYNTHESIZED WEB AUDIO ENGINE
+      // ============================================================
+      const audio = {
+        ctx: null,
+        muted: false,
+        ambienceGain: null,
+        init() {
+          if (this.ctx) {
+            if (this.ctx.state === 'suspended') this.ctx.resume();
+            return;
+          }
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (!AudioCtx) return;
+          this.ctx = new AudioCtx();
+          const bufferSize = this.ctx.sampleRate * 2;
+          const noiseBuf = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+          const out = noiseBuf.getChannelData(0);
+          let last = 0;
+          for (let i = 0; i < bufferSize; i++) {
+            const white = Math.random() * 2 - 1;
+            out[i] = (last + 0.02 * white) / 1.02;
+            last = out[i];
+          }
+          const src = this.ctx.createBufferSource();
+          src.buffer = noiseBuf;
+          src.loop = true;
+          const filter = this.ctx.createBiquadFilter();
+          filter.type = 'lowpass';
+          filter.frequency.value = 380;
+          this.ambienceGain = this.ctx.createGain();
+          this.ambienceGain.gain.value = 0.02;
+          src.connect(filter);
+          filter.connect(this.ambienceGain);
+          this.ambienceGain.connect(this.ctx.destination);
+          src.start();
+        },
+        setOutdoorAmbience(isOutdoor) {
+          if (!this.ambienceGain || !this.ctx) return;
+          const target = this.muted ? 0 : (isOutdoor ? 0.065 : 0.018);
+          this.ambienceGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.25);
+        },
+        tone(freq, dur, type, vol, slideTo) {
+          if (this.muted) return;
+          this.init();
+          if (!this.ctx) return;
+          const now = this.ctx.currentTime;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = type || 'sine';
+          osc.frequency.setValueAtTime(freq, now);
+          if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, now + dur);
+          gain.gain.setValueAtTime(vol || 0.12, now);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + dur);
+        },
+        playClick() { this.tone(920, 0.05, 'triangle', 0.11, 460); },
+        playPhone() { this.tone(660, 0.07, 'sine', 0.1, 880); },
+        playRing() {
+          this.tone(440, 0.22, 'sine', 0.09);
+          setTimeout(() => this.tone(480, 0.22, 'sine', 0.09), 260);
+        },
+        playShutter() { this.tone(1200, 0.04, 'square', 0.08, 220); },
+        playDoor(open) { this.tone(open ? 180 : 140, 0.22, 'sawtooth', 0.07, open ? 260 : 95); },
+        playDrawer(open) { this.tone(open ? 150 : 190, 0.18, 'triangle', 0.08, open ? 210 : 110); },
+        playGrab() { this.tone(360, 0.06, 'sine', 0.1, 540); },
+        playDrop() { this.tone(140, 0.09, 'triangle', 0.12, 65); },
+        playStep(sprint) { this.tone(sprint ? 125 : 95, 0.055, 'sine', sprint ? 0.055 : 0.038, 50); },
+        playSplash() { this.tone(240, 0.14, 'triangle', 0.08, 120); },
+        playLoot() {
+          this.tone(587, 0.12, 'sine', 0.13, 880);
+          setTimeout(() => this.tone(880, 0.18, 'sine', 0.11, 1175), 90);
+        },
+        playSave() {
+          this.tone(523, 0.1, 'triangle', 0.11);
+          setTimeout(() => this.tone(659, 0.1, 'triangle', 0.11), 85);
+          setTimeout(() => this.tone(784, 0.2, 'triangle', 0.11), 170);
+        },
+        playCrash() { this.tone(90, 0.24, 'sawtooth', 0.16, 38); },
+        playHorn() {
+          this.tone(330, 0.28, 'sawtooth', 0.08);
+          this.tone(415, 0.28, 'sawtooth', 0.07);
+        },
+        engineOsc: null,
+        engineGain: null,
+        updateEngine(active, speedAbs) {
+          if (!this.ctx || this.muted || !active) {
+            if (this.engineGain && this.ctx) this.engineGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1);
+            return;
+          }
+          if (!this.engineOsc) {
+            this.engineOsc = this.ctx.createOscillator();
+            this.engineOsc.type = 'sawtooth';
+            const f = this.ctx.createBiquadFilter();
+            f.type = 'lowpass'; f.frequency.value = 220;
+            this.engineGain = this.ctx.createGain();
+            this.engineGain.gain.value = 0;
+            this.engineOsc.connect(f); f.connect(this.engineGain); this.engineGain.connect(this.ctx.destination);
+            this.engineOsc.start();
+          }
+          const freq = 48 + Math.min(110, speedAbs * 3.8);
+          this.engineOsc.frequency.setTargetAtTime(freq, this.ctx.currentTime, 0.08);
+          this.engineGain.gain.setTargetAtTime(0.045, this.ctx.currentTime, 0.1);
+        }
+      };
+
+      // ============================================================
+      // 3. SAN VERANO WORLD DATA (DISTRICTS, POIs, PROPERTIES, MISSIONS)
+      // ============================================================
+      const DISTRICTS = [
+        { id: 'West Hills', xMin: -120, xMax: -45, zMin: -120, zMax: 10, color: '#1e3a5f', desc: 'Wealthy hillside mansions & quiet avenues' },
+        { id: 'Downtown', xMin: -45, xMax: 45, zMin: -120, zMax: 10, color: '#1d4ed8', desc: 'Skyscrapers, plazas & financial core' },
+        { id: 'Eastside', xMin: 45, xMax: 120, zMin: -120, zMax: 35, color: '#1e40af', desc: 'Apartments, starter home & corner shops' },
+        { id: 'Southside', xMin: -120, xMax: 30, zMin: 10, zMax: 105, color: '#334155', desc: 'Local blocks, mod shop & rival turf' },
+        { id: 'Harbor District', xMin: 30, xMax: 120, zMin: 35, zMax: 120, color: '#155e75', desc: 'Shipping docks, warehouses & ocean water' }
+      ];
+
+      function getDistrictAt(x, z) {
+        if (x >= APT_ORIGIN.x - 4.2 && x <= APT_ORIGIN.x + 4.2 && z >= APT_ORIGIN.z - 5.4 && z <= APT_ORIGIN.z + 3.6) {
+          return z < APT_ORIGIN.z - 3.05 ? 'Eastside — Apt 4B Patio' : 'Eastside — Apt 4B';
+        }
+        for (let i = 0; i < DISTRICTS.length; i++) {
+          const d = DISTRICTS[i];
+          if (x >= d.xMin && x <= d.xMax && z >= d.zMin && z <= d.zMax) return d.id;
+        }
+        return 'San Verano Bay';
+      }
+
+      const WORLD_POIS = [
+        { id: 'poi_apt', name: 'Eastside Apt 4B (Home)', cat: 'home', x: APT_ORIGIN.x, z: APT_ORIGIN.z + 4.5, color: '#22c55e', district: 'Eastside' },
+        { id: 'poi_downtown_pawn', name: 'Downtown Pawn & Gold', cat: 'shop', blip: 'pawn', x: -12, z: -48, color: '#f59e0b', district: 'Downtown' },
+        { id: 'poi_south_mod', name: 'Southside Auto & Mod Shop', cat: 'shop', blip: 'mod', x: -46, z: 54, color: '#38bdf8', district: 'Southside' },
+        { id: 'poi_east_garage', name: 'Eastside 2-Car Garage', cat: 'garage', x: 86, z: -42, color: '#a855f7', district: 'Eastside' },
+        { id: 'poi_harbor_wh', name: 'Harbor Shipping Warehouse', cat: 'home', x: 64, z: 68, color: '#22c55e', district: 'Harbor District' },
+        { id: 'poi_west_villa', name: 'West Hills Overlook Villa', cat: 'home', x: -84, z: -64, color: '#22c55e', district: 'West Hills' },
+        { id: 'poi_svpd', name: 'SVPD Central Precinct', cat: 'police', x: 18, z: -76, color: '#ef4444', district: 'Downtown' },
+        { id: 'poi_rival', name: 'Southside Rival Plaza', cat: 'rival', x: -78, z: 74, color: '#f97316', district: 'Southside' },
+        { id: 'poi_harbor_dock', name: 'Harbor Pier & Swim Ramp', cat: 'mission', x: 76, z: 96, color: '#3b82f6', district: 'Harbor District' }
+      ];
+
+      const PROPERTIES_CATALOG = [
+        { id: 'prop_apt_4b', name: 'Eastside Starter Apt 4B', district: 'Eastside', price: 0, garageSlots: 1, x: APT_ORIGIN.x, z: APT_ORIGIN.z + 4.5 },
+        { id: 'prop_east_garage', name: 'Eastside 2-Car Garage', district: 'Eastside', price: 8500, garageSlots: 2, x: 86, z: -42 },
+        { id: 'prop_harbor_wh', name: 'Harbor Shipping Warehouse', district: 'Harbor District', price: 24000, garageSlots: 4, x: 64, z: 68 },
+        { id: 'prop_downtown_loft', name: 'Downtown Skyline Loft', district: 'Downtown', price: 48000, garageSlots: 3, x: -24, z: -74 },
+        { id: 'prop_west_villa', name: 'West Hills Overlook Villa', district: 'West Hills', price: 120000, garageSlots: 6, x: -84, z: -64 }
+      ];
+
+      const CONTACTS_LIST = [
+        { id: 'c_rico', name: 'Rico "Fixer" Delgado', role: 'Contracts & Heists', msg: 'Welcome to San Verano. Check the Missions app on VANTA to scout the Harbor and Downtown.' },
+        { id: 'c_maya', name: 'Maya Chen', role: 'Harbor Logistics Broker', msg: 'Shipping containers by Pier 4 always have loose VANTA data caches. Watch your footing near the water!' },
+        { id: 'c_sal', name: 'Sal Moretti', role: 'Downtown Pawn & Gold', msg: 'Bring watches, jewelry, and encrypted drives to Downtown Pawn. Prices shift as your empire grows.' },
+        { id: 'c_elena', name: 'Elena Cruz', role: 'Southside Auto & Mod Shop', msg: 'My garage bay in Southside is open. Once vehicles roll in for Stage 3, bring your rides here.' }
+      ];
+
+      const MISSIONS_LIST = [
+        { id: 'm_downtown', title: 'Downtown Recon', desc: 'Visit Downtown Pawn & Gold in the city center.', rewardCash: 400, rewardXp: 120, targetX: -12, targetZ: -48, radius: 11 },
+        { id: 'm_harbor', title: 'Harbor Pier Check', desc: 'Scout the Harbor District docks and water ramp.', rewardCash: 450, rewardXp: 140, targetX: 76, targetZ: 92, radius: 13 },
+        { id: 'm_westhills', title: 'West Hills Survey', desc: 'Walk up to the West Hills Overlook Villa.', rewardCash: 550, rewardXp: 160, targetX: -84, targetZ: -64, radius: 14 },
+        { id: 'm_southside', title: 'Southside Mod Shop', desc: 'Locate Elena\'s Southside Auto & Mod Shop.', rewardCash: 400, rewardXp: 120, targetX: -46, targetZ: 54, radius: 12 }
+      ];
+
+      // ============================================================
+      // 4. PROCEDURAL CANVAS TEXTURES
+      // ============================================================
+      function makeWoodTexture() {
+        const c = document.createElement('canvas');
+        c.width = 256; c.height = 256;
+        const g = c.getContext('2d');
+        g.fillStyle = '#6b4a32';
+        g.fillRect(0, 0, 256, 256);
+        for (let y = 0; y < 256; y += 32) {
+          g.fillStyle = y % 64 === 0 ? '#745137' : '#63432c';
+          g.fillRect(0, y, 256, 30);
+          g.fillStyle = 'rgba(20,10,4,0.35)';
+          g.fillRect(0, y + 30, 256, 2);
+        }
+        const tex = new THREE.CanvasTexture(c);
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        tex.repeat.set(4, 4);
+        return tex;
+      }
+
+      function makePlasterTexture() {
+        const c = document.createElement('canvas');
+        c.width = 128; c.height = 128;
+        const g = c.getContext('2d');
+        g.fillStyle = '#d9dde4';
+        g.fillRect(0, 0, 128, 128);
+        for (let i = 0; i < 600; i++) {
+          const v = 205 + Math.floor(Math.random() * 22);
+          g.fillStyle = `rgb(${v},${v + 2},${v + 5})`;
+          g.fillRect(Math.random() * 128, Math.random() * 128, 2, 2);
+        }
+        const tex = new THREE.CanvasTexture(c);
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        tex.repeat.set(3, 2);
+        return tex;
+      }
+
+      function makeBuildingWindowTexture(baseHex, litHex) {
+        const c = document.createElement('canvas');
+        c.width = 256; c.height = 256;
+        const g = c.getContext('2d');
+        g.fillStyle = baseHex;
+        g.fillRect(0, 0, 256, 256);
+        for (let y = 14; y < 246; y += 32) {
+          for (let x = 14; x < 246; x += 28) {
+            g.fillStyle = Math.random() > 0.25 ? litHex : '#1e293b';
+            g.fillRect(x, y, 16, 20);
+          }
+        }
+        const tex = new THREE.CanvasTexture(c);
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        return tex;
+      }
+
+      function makeSignTexture(text, bg, fg) {
+        const c = document.createElement('canvas');
+        c.width = 512; c.height = 128;
+        const g = c.getContext('2d');
+        g.fillStyle = bg || '#0c1424';
+        g.fillRect(0, 0, 512, 128);
+        g.strokeStyle = fg || '#3b82f6';
+        g.lineWidth = 6;
+        g.strokeRect(6, 6, 500, 116);
+        g.fillStyle = fg || '#f8fafc';
+        g.font = 'bold 34px sans-serif';
+        g.textAlign = 'center';
+        g.fillText(text, 256, 76);
+        return new THREE.CanvasTexture(c);
+      }
+
+      function makeTVTexture(isOn) {
+        const c = document.createElement('canvas');
+        c.width = 512; c.height = 288;
+        const g = c.getContext('2d');
+        if (!isOn) {
+          g.fillStyle = '#090d14';
+          g.fillRect(0, 0, 512, 288);
+          return new THREE.CanvasTexture(c);
+        }
+        g.fillStyle = '#0c1b3a';
+        g.fillRect(0, 0, 512, 288);
+        g.fillStyle = '#2563eb';
+        g.fillRect(0, 0, 512, 46);
+        g.fillStyle = '#fff';
+        g.font = 'bold 20px sans-serif';
+        g.fillText('SV24 NEWS — SAN VERANO LIVE', 18, 30);
+        g.fillStyle = '#93c5fd';
+        g.font = 'bold 16px sans-serif';
+        g.fillText('CLEAR SKIES • 76°F • ALL 5 DISTRICTS OPEN', 18, 86);
+        g.fillStyle = '#e2e8f0';
+        g.font = '15px sans-serif';
+        g.fillText('• Step outside Apt 4B to explore San Verano', 18, 130);
+        g.fillText('• VANTA Smartphone OS now active (Press P)', 18, 160);
+        g.fillText('• Harbor Pier open for surface swimming', 18, 190);
+        g.fillStyle = '#1e3a8a';
+        g.fillRect(0, 240, 512, 48);
+        g.fillStyle = '#60a5fa';
+        g.font = 'bold 15px monospace';
+        g.fillText('CITY LIMITS VR // STAGE 2 OPEN WORLD LIVE', 18, 270);
+        return new THREE.CanvasTexture(c);
+      }
+
+      function makeVantaTerminalTexture() {
+        const c = document.createElement('canvas');
+        c.width = 512; c.height = 320;
+        const g = c.getContext('2d');
+        g.fillStyle = '#080e1c';
+        g.fillRect(0, 0, 512, 320);
+        g.strokeStyle = '#3b82f6';
+        g.lineWidth = 6;
+        g.strokeRect(8, 8, 496, 304);
+        g.fillStyle = '#3b82f6';
+        g.font = 'bold 26px sans-serif';
+        g.fillText('VANTA OS // SAFEHOUSE', 32, 62);
+        g.fillStyle = '#cbd5e1';
+        g.font = '18px sans-serif';
+        g.fillText('• Manual Save & 3-Slot Manager', 36, 120);
+        g.fillText('• Safehouse Inventory Vault', 36, 158);
+        g.fillText('• Smooth VR Settings', 36, 196);
+        g.fillStyle = '#2563eb';
+        g.fillRect(36, 232, 240, 48);
+        g.fillStyle = '#ffffff';
+        g.font = 'bold 18px sans-serif';
+        g.fillText('INTERACT TO OPEN', 64, 262);
+        return new THREE.CanvasTexture(c);
+      }
+
+      // ============================================================
+      // 5. THREE.JS SCENE, RENDERER & WEBXR SETUP
+      // ============================================================
+      const container = document.getElementById('canvas-container');
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x7cc4fa);
+      scene.fog = new THREE.Fog(0x9bd3fc, 65, 225);
+
+      const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.05, 320);
+
+      // preserveDrawingBuffer: true enables real in-game VANTA Camera snapshots!
+      const renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        powerPreference: 'high-performance',
+        preserveDrawingBuffer: true
+      });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.xr.enabled = true;
+      container.appendChild(renderer.domElement);
+
+      const playerRig = new THREE.Group();
+      playerRig.position.set(APT_ORIGIN.x, 0, APT_ORIGIN.z + 1.4);
+      scene.add(playerRig);
+      camera.position.set(0, 1.65, 0);
+      playerRig.add(camera);
+
+      // Always Sunny Daytime Lighting
+      const hemiLight = new THREE.HemisphereLight(0xdbeafe, 0x6b7280, 0.78);
+      scene.add(hemiLight);
+
+      const sunLight = new THREE.DirectionalLight(0xfff7e6, 1.15);
+      sunLight.position.set(45, 78, -55);
+      sunLight.castShadow = true;
+      sunLight.shadow.mapSize.width = 1024;
+      sunLight.shadow.mapSize.height = 1024;
+      sunLight.shadow.camera.near = 5;
+      sunLight.shadow.camera.far = 220;
+      sunLight.shadow.camera.left = -95;
+      sunLight.shadow.camera.right = 95;
+      sunLight.shadow.camera.top = 95;
+      sunLight.shadow.camera.bottom = -95;
+      scene.add(sunLight);
+
+      const ceilingLight = new THREE.PointLight(0xfff3dc, 0.85, 11, 1.5);
+      ceilingLight.position.set(APT_ORIGIN.x, 2.85, APT_ORIGIN.z);
+      scene.add(ceilingLight);
+
+      const lampLight = new THREE.PointLight(0xffd28a, 0.55, 5.5, 1.6);
+      lampLight.position.set(APT_ORIGIN.x - 2.95, 1.25, APT_ORIGIN.z - 1.75);
+      scene.add(lampLight);
+
+      // ============================================================
+      // 6. ARTICULATED VR HANDS (QUEST 3 CONTROLLERS)
+      // ============================================================
+      function createVRHand(side) {
+        const hand = new THREE.Group();
+        const skinMat = new THREE.MeshStandardMaterial({ color: 0xc99672, roughness: 0.65 });
+        const cuffMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.5 });
+        const accentMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, emissive: 0x1d4ed8, emissiveIntensity: 0.4 });
+
+        const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.042, 0.11, 12), cuffMat);
+        cuff.rotation.x = Math.PI / 2;
+        cuff.position.set(0, -0.01, 0.09);
+        hand.add(cuff);
+
+        const band = new THREE.Mesh(new THREE.CylinderGeometry(0.037, 0.037, 0.014, 12), accentMat);
+        band.rotation.x = Math.PI / 2;
+        band.position.set(0, -0.01, 0.048);
+        hand.add(band);
+
+        const palm = new THREE.Mesh(new THREE.BoxGeometry(0.078, 0.026, 0.09), skinMat);
+        palm.position.set(0, 0, -0.005);
+        hand.add(palm);
+
+        const s = side === 'left' ? 1 : -1;
+        const fingers = {};
+
+        function makeFinger(name, x, z, len1, len2) {
+          const base = new THREE.Group();
+          base.position.set(x, 0, z);
+          const seg1 = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.015, len1), skinMat);
+          seg1.position.set(0, 0, -len1 * 0.5);
+          base.add(seg1);
+          const mid = new THREE.Group();
+          mid.position.set(0, 0, -len1);
+          const seg2 = new THREE.Mesh(new THREE.BoxGeometry(0.013, 0.013, len2), skinMat);
+          seg2.position.set(0, 0, -len2 * 0.5);
+          mid.add(seg2);
+          base.add(mid);
+          hand.add(base);
+          fingers[name] = { base, mid };
+        }
+
+        makeFinger('index',  s * 0.028, -0.048, 0.038, 0.030);
+        makeFinger('middle', s * 0.009, -0.050, 0.043, 0.032);
+        makeFinger('ring',  -s * 0.010, -0.048, 0.039, 0.029);
+        makeFinger('pinky', -s * 0.028, -0.044, 0.031, 0.024);
+
+        const thumbBase = new THREE.Group();
+        thumbBase.position.set(s * 0.042, -0.005, -0.012);
+        thumbBase.rotation.y = -s * 0.55;
+        const t1 = new THREE.Mesh(new THREE.BoxGeometry(0.017, 0.017, 0.034), skinMat);
+        t1.position.set(0, 0, -0.017);
+        thumbBase.add(t1);
+        const thumbMid = new THREE.Group();
+        thumbMid.position.set(0, 0, -0.034);
+        const t2 = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.015, 0.026), skinMat);
+        t2.position.set(0, 0, -0.013);
+        thumbMid.add(t2);
+        thumbBase.add(thumbMid);
+        hand.add(thumbBase);
+        fingers.thumb = { base: thumbBase, mid: thumbMid };
+
+        const rayGeo = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(0, 0, -0.05),
+          new THREE.Vector3(0, 0, -1.8)
+        ]);
+        const rayMat = new THREE.LineBasicMaterial({ color: 0x60a5fa, transparent: true, opacity: 0.45 });
+        hand.add(new THREE.Line(rayGeo, rayMat));
+
+        hand.userData.setPose = function (triggerVal, gripVal, thumbVal) {
+          const iCurl = Math.max(0, Math.min(1, triggerVal));
+          const gCurl = Math.max(0, Math.min(1, gripVal));
+          const tCurl = Math.max(0, Math.min(1, thumbVal));
+          fingers.index.base.rotation.x = -iCurl * 1.15;
+          fingers.index.mid.rotation.x = -iCurl * 1.25;
+          ['middle', 'ring', 'pinky'].forEach(fn => {
+            fingers[fn].base.rotation.x = -gCurl * 1.25;
+            fingers[fn].mid.rotation.x = -gCurl * 1.3;
+          });
+          fingers.thumb.base.rotation.x = -tCurl * 0.65;
+          fingers.thumb.mid.rotation.x = -tCurl * 0.85;
+        };
+
+        return hand;
+      }
+
+      const vrControllers = [];
+      let vrPhoneBtnLatched = false;
+      for (let i = 0; i < 2; i++) {
+        const ctrl = renderer.xr.getController(i);
+        const handMesh = createVRHand(i === 0 ? 'left' : 'right');
+        ctrl.add(handMesh);
+        playerRig.add(ctrl);
+
+        const state = {
+          index: i,
+          controller: ctrl,
+          hand: handMesh,
+          handedness: i === 0 ? 'left' : 'right',
+          gamepad: null,
+          grabbed: null,
+          prevPos: new THREE.Vector3(),
+          vel: new THREE.Vector3()
+        };
+
+        ctrl.addEventListener('connected', (ev) => {
+          state.handedness = ev.data.handedness || (i === 0 ? 'left' : 'right');
+          state.gamepad = ev.data.gamepad || null;
+          ctrl.remove(state.hand);
+          state.hand = createVRHand(state.handedness);
+          ctrl.add(state.hand);
+        });
+        ctrl.addEventListener('disconnected', () => { state.gamepad = null; });
+        ctrl.addEventListener('selectstart', () => handleVRInteract(state));
+        ctrl.addEventListener('squeezestart', () => handleVRGrabStart(state));
+        ctrl.addEventListener('squeezeend', () => handleVRGrabEnd(state));
+        vrControllers.push(state);
+      }
+
+      const desktopHand = createVRHand('right');
+      desktopHand.position.set(0.24, -0.24, -0.44);
+      desktopHand.rotation.set(0.2, 0.1, 0);
+      camera.add(desktopHand);
+
+      // ============================================================
+      // 6B. HIP-MOUNTED VANTA SMARTPHONE HOLSTER (GRAB OFF HIP IN VR)
+      // ============================================================
+      const hipHolsterGroup = new THREE.Group();
+      hipHolsterGroup.position.set(0.26, 0.94, 0.04);
+      playerRig.add(hipHolsterGroup);
+
+      // Sleek belt clip / holster dock with cobalt indicator rim
+      const holsterDock = new THREE.Mesh(
+        new THREE.BoxGeometry(0.095, 0.11, 0.032),
+        new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.45, metalness: 0.55 })
+      );
+      hipHolsterGroup.add(holsterDock);
+
+      const holsterGlowMat = new THREE.MeshStandardMaterial({
+        color: 0x3b82f6, emissive: 0x2563eb, emissiveIntensity: 0.65, roughness: 0.25
+      });
+      const holsterRim = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.014, 0.036), holsterGlowMat);
+      holsterRim.position.set(0, -0.048, 0);
+      hipHolsterGroup.add(holsterRim);
+
+      // Live canvas texture for the physical 3D VANTA Smartphone screen
+      const hipPhoneCanvas = document.createElement('canvas');
+      hipPhoneCanvas.width = 256;
+      hipPhoneCanvas.height = 512;
+      const hipPhoneCtx = hipPhoneCanvas.getContext('2d');
+      const hipPhoneScreenTex = new THREE.CanvasTexture(hipPhoneCanvas);
+
+      function refreshHipPhoneScreen() {
+        const g = hipPhoneCtx;
+        g.fillStyle = '#060c1a';
+        g.fillRect(0, 0, 256, 512);
+        g.fillStyle = '#1d4ed8';
+        g.fillRect(0, 0, 256, 68);
+        g.fillStyle = '#ffffff';
+        g.font = 'bold 24px sans-serif';
+        g.fillText('VANTA OS', 18, 44);
+        g.fillStyle = '#93c5fd';
+        g.font = 'bold 16px sans-serif';
+        g.fillText((gameState && gameState.district) ? gameState.district.slice(0, 20) : 'Eastside', 18, 108);
+        g.fillStyle = '#22c55e';
+        g.font = 'bold 34px sans-serif';
+        g.fillText('$' + ((gameState && gameState.cash) ? gameState.cash.toLocaleString() : '1,250'), 18, 162);
+        g.fillStyle = '#cbd5e1';
+        g.font = '16px sans-serif';
+        const gpsLabel = (gameState && gameState.gpsTarget) ? ('GPS: ' + gameState.gpsTarget.name.slice(0, 18)) : 'GPS: No Waypoint';
+        g.fillText(gpsLabel, 18, 210);
+        // Mini 3x3 GTA-style color-coded app tiles
+        const tileCols = ['#2563eb','#16a34a','#7c3aed','#059669','#d97706','#eab308','#0284c7','#334155','#475569'];
+        for (let r = 0; r < 3; r++) {
+          for (let c = 0; c < 3; c++) {
+            const tx = 24 + c * 74, ty = 248 + r * 68;
+            g.fillStyle = tileCols[r * 3 + c];
+            g.fillRect(tx, ty, 56, 52);
+            g.strokeStyle = 'rgba(255,255,255,0.4)';
+            g.lineWidth = 2;
+            g.strokeRect(tx, ty, 56, 52);
+            g.fillStyle = '#ffffff';
+            g.fillRect(tx + 18, ty + 16, 20, 20);
+          }
+        }
+        g.fillStyle = '#3b82f6';
+        g.fillRect(18, 462, 220, 34);
+        g.fillStyle = '#ffffff';
+        g.font = 'bold 15px sans-serif';
+        g.fillText('TRIGGER: OPEN APPS', 42, 485);
+        hipPhoneScreenTex.needsUpdate = true;
+      }
+
+      // Physical 3D VANTA Phone Mesh nested in hip holster
+      const hipPhoneMesh = new THREE.Group();
+      const hipPhoneBody = new THREE.Mesh(
+        new THREE.BoxGeometry(0.082, 0.165, 0.012),
+        new THREE.MeshStandardMaterial({ color: 0x0b1222, metalness: 0.7, roughness: 0.25 })
+      );
+      const hipPhoneScreen = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.072, 0.148),
+        new THREE.MeshBasicMaterial({ map: hipPhoneScreenTex })
+      );
+      hipPhoneScreen.position.z = 0.0068;
+      hipPhoneMesh.add(hipPhoneBody, hipPhoneScreen);
+      hipPhoneMesh.position.set(0, 0.03, 0.006);
+      hipHolsterGroup.add(hipPhoneMesh);
+
+      const hipPhoneState = {
+        heldByVR: null,
+        heldByDesktop: false
+      };
+
+      function snapHipPhoneToHolster() {
+        hipHolsterGroup.attach(hipPhoneMesh);
+        hipPhoneMesh.position.set(0, 0.03, 0.006);
+        hipPhoneMesh.rotation.set(0, 0, 0);
+        hipPhoneState.heldByVR = null;
+        hipPhoneState.heldByDesktop = false;
+        holsterGlowMat.emissiveIntensity = 0.65;
+        audio.playClick();
+      }
+
+      // ============================================================
+      // 7. BUILD SAN VERANO OPEN WORLD + ENTERABLE INTERIORS
+      // ============================================================
+      const colliders = [];
+      const interactables = [];
+      const grabbables = [];
+
+      const woodTex = makeWoodTexture();
+      const wallTex = makePlasterTexture();
+      const winTexDowntown = makeBuildingWindowTexture('#334155', '#93c5fd');
+      const winTexEastside = makeBuildingWindowTexture('#64748b', '#e2e8f0');
+      const winTexMansion = makeBuildingWindowTexture('#e2e8f0', '#bfdbfe');
+
+      const matFloor = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.72 });
+      const matWall = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.85 });
+      const matAccentWall = new THREE.MeshStandardMaterial({ color: 0x263248, roughness: 0.8 });
+      const matCeiling = new THREE.MeshStandardMaterial({ color: 0xe5e7eb, roughness: 0.9 });
+      const matDarkWood = new THREE.MeshStandardMaterial({ color: 0x3b2a1e, roughness: 0.6 });
+      const matMetal = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.7, roughness: 0.35 });
+      const matFabric = new THREE.MeshStandardMaterial({ color: 0x1e3a5f, roughness: 0.9 });
+      const matConcrete = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.9 });
+      const matAsphalt = new THREE.MeshStandardMaterial({ color: 0x27303f, roughness: 0.92 });
+      const matGrass = new THREE.MeshStandardMaterial({ color: 0x4d7c4f, roughness: 0.95 });
+      const matGlass = new THREE.MeshStandardMaterial({ color: 0x93c5fd, transparent: true, opacity: 0.28, roughness: 0.1 });
+
+      function addStaticBox(w, h, d, x, y, z, mat, collide, noShadow) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+        m.position.set(x, y, z);
+        if (!noShadow) { m.castShadow = true; m.receiveShadow = true; }
+        scene.add(m);
+        if (collide) {
+          colliders.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2, activeFn: null });
+        }
+        return m;
+      }
+
+      // --- Ground & Ocean Water ---
+      // Main Landmass (X: -125..125, Z: -125..98)
+      const landMesh = new THREE.Mesh(new THREE.PlaneGeometry(255, 226), matConcrete);
+      landMesh.rotation.x = -Math.PI / 2;
+      landMesh.position.set(0, -0.02, -14);
+      landMesh.receiveShadow = true;
+      scene.add(landMesh);
+
+      // West Hills green turf patch
+      const westGrass = new THREE.Mesh(new THREE.PlaneGeometry(76, 128), matGrass);
+      westGrass.rotation.x = -Math.PI / 2;
+      westGrass.position.set(-84, -0.01, -55);
+      westGrass.receiveShadow = true;
+      scene.add(westGrass);
+
+      // Ocean / Harbor Water (swimmable at Z > 96)
+      const waterMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(420, 180),
+        new THREE.MeshStandardMaterial({ color: 0x0ea5e9, roughness: 0.18, metalness: 0.25, transparent: true, opacity: 0.86 })
+      );
+      waterMesh.rotation.x = -Math.PI / 2;
+      waterMesh.position.set(0, -0.35, 184);
+      scene.add(waterMesh);
+
+      // Harbor Dock Pier extending into swimmable water + gentle exit ramp
+      addStaticBox(16, 0.35, 14, 76, -0.15, 102, matDarkWood, false, true);
+      // Exit ramp from water back onto dock
+      const rampMesh = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.15, 4.5), matMetal);
+      rampMesh.position.set(76, -0.22, 110.2);
+      rampMesh.rotation.x = 0.18;
+      scene.add(rampMesh);
+
+      // --- City Road Grid (Seamless Avenues connecting all 5 Districts) ---
+      const roadSpecs = [
+        { w: 240, d: 14, x: 0, z: 10 },    // Central East-West Blvd
+        { w: 240, d: 12, x: 0, z: -56 },   // North Downtown / West Hills / Eastside Ave
+        { w: 240, d: 12, x: 0, z: 74 },    // Southside / Harbor Blvd
+        { w: 14, d: 215, x: -45, z: -12 }, // West Hills - Downtown Divider Ave
+        { w: 14, d: 215, x: 45, z: -12 }   // Downtown - Eastside / Harbor Ave
+      ];
+      const matStripe = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
+      roadSpecs.forEach(r => {
+        const road = new THREE.Mesh(new THREE.PlaneGeometry(r.w, r.d), matAsphalt);
+        road.rotation.x = -Math.PI / 2;
+        road.position.set(r.x, 0.005, r.z);
+        road.receiveShadow = true;
+        scene.add(road);
+
+        const isHoriz = r.w > r.d;
+        const stripe = new THREE.Mesh(
+          new THREE.PlaneGeometry(isHoriz ? r.w - 4 : 0.35, isHoriz ? 0.35 : r.d - 4),
+          matStripe
+        );
+        stripe.rotation.x = -Math.PI / 2;
+        stripe.position.set(r.x, 0.012, r.z);
+        scene.add(stripe);
+      });
+
+      // --- Starter Apartment (Eastside Apt 4B) — Seamless Walk-Out onto Eastside ---
+      const AX = APT_ORIGIN.x, AZ = APT_ORIGIN.z;
+      addStaticBox(8.2, 0.16, 6.7, AX, -0.06, AZ + 0.25, matFloor, false);
+      addStaticBox(8.2, 0.2, 6.7, AX, 3.15, AZ + 0.25, matCeiling, false);
+      // Patio/Back Deck (Z -5.2..-3.0 relative to AX,AZ)
+      addStaticBox(8.2, 0.16, 2.3, AX, -0.07, AZ - 4.15, matConcrete, false);
+      addStaticBox(8.2, 1.0, 0.1, AX, 0.5, AZ - 5.25, matMetal, true);
+      addStaticBox(0.1, 1.0, 2.2, AX - 4.05, 0.5, AZ - 4.15, matMetal, true);
+      addStaticBox(0.1, 1.0, 2.2, AX + 4.05, 0.5, AZ - 4.15, matMetal, true);
+
+      // Left & Right Apartment Walls
+      addStaticBox(0.2, 3.1, 6.7, AX - 4.0, 1.55, AZ + 0.25, matWall, true);
+      addStaticBox(0.2, 3.1, 6.7, AX + 4.0, 1.55, AZ + 0.25, matAccentWall, true);
+
+      // Front Street-Facing Wall (Z = AZ + 3.5) with Doorway at X in [AX-0.6, AX+0.6]
+      addStaticBox(3.4, 3.1, 0.2, AX - 2.3, 1.55, AZ + 3.5, matWall, true);
+      addStaticBox(3.4, 3.1, 0.2, AX + 2.3, 1.55, AZ + 3.5, matWall, true);
+      addStaticBox(1.2, 0.9, 0.2, AX, 2.65, AZ + 3.5, matWall, false);
+
+      // Exterior Apartment Building Upper Story Facade + Sign
+      addStaticBox(8.4, 6.2, 6.9, AX, 6.35, AZ + 0.25, new THREE.MeshStandardMaterial({ map: winTexEastside, roughness: 0.75 }), false);
+      const aptSign = new THREE.Mesh(
+        new THREE.PlaneGeometry(3.4, 0.8),
+        new THREE.MeshBasicMaterial({ map: makeSignTexture('APT 4B — SAFEHOUSE', '#0c1424', '#3b82f6') })
+      );
+      aptSign.position.set(AX, 3.65, AZ + 3.74);
+      scene.add(aptSign);
+
+      // Back Wall (Z = AZ - 3.0) with Panoramic Window & Patio Doorway
+      addStaticBox(1.0, 3.1, 0.2, AX - 3.5, 1.55, AZ - 3.0, matWall, true);
+      addStaticBox(3.9, 0.85, 0.2, AX - 1.05, 0.425, AZ - 3.0, matWall, true);
+      addStaticBox(3.9, 0.65, 0.2, AX - 1.05, 2.775, AZ - 3.0, matWall, false);
+      addStaticBox(3.9, 1.6, 0.04, AX - 1.05, 1.65, AZ - 3.0, matGlass, false);
+      addStaticBox(1.9, 3.1, 0.2, AX + 3.05, 1.55, AZ - 3.0, matWall, true);
+      addStaticBox(1.2, 0.85, 0.2, AX + 1.5, 2.675, AZ - 3.0, matWall, false);
+
+      // Apartment Interior Furnishings (all Stage 1 objects preserved!)
+      const ceilingFixture = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.24, 0.28, 0.08, 16),
+        new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff3dc, emissiveIntensity: 0.9 })
+      );
+      ceilingFixture.position.set(AX, 3.01, AZ);
+      scene.add(ceilingFixture);
+
+      const rug = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.02, 2.1), new THREE.MeshStandardMaterial({ color: 0x1e293b }));
+      rug.position.set(AX - 0.2, 0.03, AZ - 0.3);
+      scene.add(rug);
+
+      addStaticBox(1.85, 0.42, 2.2, AX - 2.9, 0.21, AZ + 1.8, matDarkWood, true);
+      addStaticBox(1.75, 0.22, 2.1, AX - 2.9, 0.52, AZ + 1.8, matFabric, false);
+      addStaticBox(1.5, 0.16, 0.45, AX - 2.9, 0.68, AZ + 2.55, new THREE.MeshStandardMaterial({ color: 0xe2e8f0 }), false);
+
+      addStaticBox(0.65, 0.58, 0.55, AX - 3.4, 0.29, AZ + 0.2, matDarkWood, true);
+      addStaticBox(0.14, 0.28, 0.14, AX - 3.4, 0.72, AZ + 0.2, matMetal, false);
+      const lampShade = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.12, 0.18, 0.22, 14),
+        new THREE.MeshStandardMaterial({ color: 0xfef3c7, emissive: 0xfbbf24, emissiveIntensity: 0.6 })
+      );
+      lampShade.position.set(AX - 3.4, 0.96, AZ + 0.2);
+      scene.add(lampShade);
+
+      addStaticBox(2.2, 0.44, 0.9, AX - 0.2, 0.22, AZ + 0.9, matFabric, true);
+      addStaticBox(2.2, 0.55, 0.22, AX - 0.2, 0.65, AZ + 1.24, matFabric, false);
+      addStaticBox(1.3, 0.42, 0.65, AX - 0.2, 0.21, AZ - 0.45, matDarkWood, true);
+
+      addStaticBox(1.6, 0.06, 0.75, AX - 2.3, 0.76, AZ - 2.3, matDarkWood, true);
+      addStaticBox(0.08, 0.76, 0.68, AX - 3.02, 0.38, AZ - 2.3, matMetal, false);
+      addStaticBox(0.55, 0.74, 0.68, AX - 1.78, 0.37, AZ - 2.3, matDarkWood, false);
+
+      addStaticBox(0.85, 0.9, 2.6, AX + 3.45, 0.45, AZ + 1.3, new THREE.MeshStandardMaterial({ color: 0x334155 }), true);
+      addStaticBox(0.9, 0.06, 2.65, AX + 3.45, 0.93, AZ + 1.3, new THREE.MeshStandardMaterial({ color: 0xcbd5e1 }), false);
+
+      addStaticBox(0.08, 1.05, 1.75, AX + 3.85, 1.65, AZ - 1.2, new THREE.MeshStandardMaterial({ color: 0x0f172a }), false);
+      const tvScreenMat = new THREE.MeshStandardMaterial({ map: makeTVTexture(true), emissive: 0x1e3a8a, emissiveIntensity: 0.35 });
+      const tvScreen = new THREE.Mesh(new THREE.PlaneGeometry(1.62, 0.92), tvScreenMat);
+      tvScreen.position.set(AX + 3.8, 1.65, AZ - 1.2);
+      tvScreen.rotation.y = -Math.PI / 2;
+      scene.add(tvScreen);
+
+      addStaticBox(0.95, 0.62, 0.07, AX - 1.5, 1.52, AZ + 3.36, new THREE.MeshStandardMaterial({ color: 0x0f172a }), false);
+      const vantaScreen = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.86, 0.54),
+        new THREE.MeshStandardMaterial({ map: makeVantaTerminalTexture(), emissive: 0x1d4ed8, emissiveIntensity: 0.35 })
+      );
+      vantaScreen.position.set(AX - 1.5, 1.52, AZ + 3.315);
+      vantaScreen.rotation.y = Math.PI;
+      scene.add(vantaScreen);
+
+      // Interactive Doors, Drawers, Switch & Safe
+      const frontDoorPivot = new THREE.Group();
+      frontDoorPivot.position.set(AX - 0.58, 0, AZ + 3.5);
+      scene.add(frontDoorPivot);
+      const frontDoorMesh = new THREE.Mesh(new THREE.BoxGeometry(1.16, 2.2, 0.08), new THREE.MeshStandardMaterial({ color: 0x475569 }));
+      frontDoorMesh.position.set(0.58, 1.1, 0);
+      frontDoorPivot.add(frontDoorMesh);
+      colliders.push({ minX: AX - 0.6, maxX: AX + 0.6, minZ: AZ + 3.38, maxZ: AZ + 3.62, activeFn: () => !gameState.safehouse.frontDoorOpen });
+
+      const balconyDoorPivot = new THREE.Group();
+      balconyDoorPivot.position.set(AX + 0.92, 0, AZ - 3.0);
+      scene.add(balconyDoorPivot);
+      const balconyDoorFrame = new THREE.Mesh(new THREE.BoxGeometry(1.16, 2.2, 0.07), new THREE.MeshStandardMaterial({ color: 0x1e293b, transparent: true, opacity: 0.55 }));
+      balconyDoorFrame.position.set(0.58, 1.1, 0);
+      balconyDoorPivot.add(balconyDoorFrame);
+      colliders.push({ minX: AX + 0.9, maxX: AX + 2.1, minZ: AZ - 3.12, maxZ: AZ - 2.88, activeFn: () => !gameState.safehouse.balconyDoorOpen });
+
+      addStaticBox(0.14, 0.2, 0.03, AX + 0.9, 1.32, AZ + 3.38, new THREE.MeshStandardMaterial({ color: 0xe2e8f0 }), false);
+      const switchToggle = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.07, 0.04), new THREE.MeshStandardMaterial({ color: 0x3b82f6, emissive: 0x2563eb, emissiveIntensity: 0.5 }));
+      switchToggle.position.set(AX + 0.9, 1.32, AZ + 3.35);
+      scene.add(switchToggle);
+
+      const deskDrawerGroup = new THREE.Group();
+      deskDrawerGroup.position.set(AX - 1.78, 0.56, AZ - 2.25);
+      scene.add(deskDrawerGroup);
+      const deskDrawerBox = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.18, 0.58), new THREE.MeshStandardMaterial({ color: 0x4b3625 }));
+      deskDrawerGroup.add(deskDrawerBox);
+
+      const nightDrawerGroup = new THREE.Group();
+      nightDrawerGroup.position.set(AX - 3.36, 0.38, AZ + 0.2);
+      scene.add(nightDrawerGroup);
+      const nightDrawerBox = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.16, 0.46), new THREE.MeshStandardMaterial({ color: 0x4b3625 }));
+      nightDrawerGroup.add(nightDrawerBox);
+
+      addStaticBox(0.42, 0.46, 0.46, AX - 3.72, 1.28, AZ + 2.75, new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.7 }), false);
+      const safeDoorPivot = new THREE.Group();
+      safeDoorPivot.position.set(AX - 3.5, 1.28, AZ + 2.96);
+      scene.add(safeDoorPivot);
+      const safeDoorMesh = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.4, 0.42), new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.8 }));
+      safeDoorMesh.position.set(0, 0, -0.21);
+      safeDoorPivot.add(safeDoorMesh);
+
+      // --- Enterable Key San Verano Buildings (Open-Bay Seamless Interiors) ---
+      function buildEnterableShop(x, z, w, h, d, title, accentHex, counterLabel) {
+        const wallM = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.8 });
+        // Back, Left, Right walls + Roof (Front faces +Z open entrance)
+        addStaticBox(w, h, 0.3, x, h / 2, z - d / 2, wallM, true);
+        addStaticBox(0.3, h, d, x - w / 2, h / 2, z, wallM, true);
+        addStaticBox(0.3, h, d, x + w / 2, h / 2, z, wallM, true);
+        addStaticBox(w + 0.4, 0.3, d + 0.4, x, h, z, wallM, false);
+        // Signboard
+        const sign = new THREE.Mesh(
+          new THREE.PlaneGeometry(Math.min(w - 1, 6.5), 1.3),
+          new THREE.MeshBasicMaterial({ map: makeSignTexture(title, '#0c1424', accentHex) })
+        );
+        sign.position.set(x, h - 0.8, z + d / 2 + 0.08);
+        scene.add(sign);
+        // Shop Counter
+        const counter = addStaticBox(w * 0.55, 1.0, 0.9, x, 0.5, z - d * 0.18, matDarkWood, true);
+        interactables.push({
+          mesh: counter,
+          kind: 'action',
+          getLabel: () => counterLabel,
+          action: () => {
+            audio.playClick();
+            showToast(counterLabel + ' — Full trading & customization unlocks in Stages 3 & 6!');
+          }
+        });
+      }
+
+      // 1. Downtown Pawn & Gold
+      buildEnterableShop(-12, -44, 10, 4.4, 9, 'DOWNTOWN PAWN & GOLD', '#f59e0b', 'Check Pawn Prices (Watch: $450)');
+      // 2. Southside Auto & Mod Shop
+      buildEnterableShop(-46, 48, 12, 5.2, 11, 'SOUTHSIDE AUTO & MODS', '#38bdf8', 'Drive a car here to Customize');
+      // 3. Harbor Shipping Warehouse
+      buildEnterableShop(64, 62, 14, 6.0, 12, 'HARBOR WAREHOUSE #4', '#22c55e', 'Check Warehouse Stash Terminal');
+
+      // --- Procedural Skyline & District Architecture (5 Distinct Districts) ---
+      const bldgMatDowntown = new THREE.MeshStandardMaterial({ map: winTexDowntown, roughness: 0.65 });
+      const bldgMatEastside = new THREE.MeshStandardMaterial({ map: winTexEastside, roughness: 0.78 });
+      const bldgMatMansion = new THREE.MeshStandardMaterial({ map: winTexMansion, roughness: 0.72 });
+      const bldgMatSouth = new THREE.MeshStandardMaterial({ color: 0x78716c, roughness: 0.85 });
+      const bldgMatPolice = new THREE.MeshStandardMaterial({ color: 0x1e3a8a, roughness: 0.6 });
+
+      const cityBuildings = [
+        // Downtown Towers
+        { x: -24, z: -78, w: 14, h: 36, d: 14, mat: bldgMatDowntown },
+        { x: 0,   z: -86, w: 16, h: 48, d: 16, mat: bldgMatDowntown },
+        { x: 20,  z: -78, w: 14, h: 24, d: 14, mat: bldgMatPolice }, // SVPD Precinct
+        { x: -24, z: -18, w: 13, h: 28, d: 13, mat: bldgMatDowntown },
+        { x: 14,  z: -24, w: 15, h: 38, d: 14, mat: bldgMatDowntown },
+        { x: 26,  z: -42, w: 12, h: 26, d: 12, mat: bldgMatDowntown },
+        // Eastside Apartments & Garage
+        { x: 86,  z: -42, w: 12, h: 6,  d: 10, mat: bldgMatEastside }, // Eastside Garage
+        { x: 88,  z: -16, w: 14, h: 14, d: 12, mat: bldgMatEastside },
+        { x: 64,  z: -36, w: 12, h: 11, d: 10, mat: bldgMatEastside },
+        { x: 84,  z: 22,  w: 14, h: 10, d: 12, mat: bldgMatEastside },
+        // West Hills Mansions
+        { x: -84, z: -68, w: 18, h: 9,  d: 14, mat: bldgMatMansion }, // West Hills Villa
+        { x: -72, z: -28, w: 15, h: 8,  d: 12, mat: bldgMatMansion },
+        { x: -96, z: -20, w: 16, h: 8,  d: 13, mat: bldgMatMansion },
+        { x: -88, z: -96, w: 16, h: 10, d: 14, mat: bldgMatMansion },
+        // Southside Neighborhoods & Rival Plaza
+        { x: -80, z: 42,  w: 12, h: 8,  d: 10, mat: bldgMatSouth },
+        { x: -16, z: 42,  w: 13, h: 9,  d: 11, mat: bldgMatSouth },
+        { x: 10,  z: 44,  w: 12, h: 8,  d: 10, mat: bldgMatSouth },
+        { x: -84, z: 76,  w: 14, h: 7,  d: 12, mat: new THREE.MeshStandardMaterial({ color: 0x7c2d12, roughness: 0.85 }) },
+        { x: -18, z: 84,  w: 12, h: 8,  d: 10, mat: bldgMatSouth }
+      ];
+      cityBuildings.forEach(b => addStaticBox(b.w, b.h, b.d, b.x, b.h / 2, b.z, b.mat, true));
+
+      // Harbor Shipping Containers (Colorful Industrial Docks)
+      const containerCols = [0xdc2626, 0x2563eb, 0xd97706, 0x059669];
+      const containers = [
+        [88, 60], [88, 68], [96, 64], [48, 84], [58, 88], [92, 84]
+      ];
+      containers.forEach((c, idx) => {
+        const mat = new THREE.MeshStandardMaterial({ color: containerCols[idx % containerCols.length], roughness: 0.65 });
+        addStaticBox(6.2, 2.7, 2.6, c[0], 1.35, c[1], mat, true);
+      });
+
+      // Decorative Trees & Palm Silhouettes (low-poly Quest friendly)
+      const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5c4033 });
+      const leafMat = new THREE.MeshStandardMaterial({ color: 0x22c55e });
+      const treeCoords = [
+        [-64, -46], [-98, -48], [-64, -82], [-34, -36], [34, -36],
+        [54, -2], [74, -2], [-32, 26], [24, 26], [-64, 58]
+      ];
+      treeCoords.forEach(t => {
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, 3.6, 6), trunkMat);
+        trunk.position.set(t[0], 1.8, t[1]);
+        scene.add(trunk);
+        const crown = new THREE.Mesh(new THREE.ConeGeometry(1.7, 3.2, 7), leafMat);
+        crown.position.set(t[0], 4.2, t[1]);
+        scene.add(crown);
+      });
+
+      // Bright Sun Disc
+      const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(5.5, 16, 16), new THREE.MeshBasicMaterial({ color: 0xfffbeb }));
+      sunDisc.position.set(70, 95, -155);
+      scene.add(sunDisc);
+
+      // 3D GPS Waypoint Beacon Pillar
+      const gpsBeacon = new THREE.Group();
+      const beaconBeam = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.45, 0.45, 55, 12, 1, true),
+        new THREE.MeshBasicMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.35, side: THREE.DoubleSide })
+      );
+      beaconBeam.position.y = 27.5;
+      const beaconRing = new THREE.Mesh(
+        new THREE.TorusGeometry(1.3, 0.14, 8, 24),
+        new THREE.MeshBasicMaterial({ color: 0x60a5fa })
+      );
+      beaconRing.rotation.x = Math.PI / 2;
+      beaconRing.position.y = 0.25;
+      gpsBeacon.add(beaconBeam, beaconRing);
+      gpsBeacon.visible = false;
+      scene.add(gpsBeacon);
+
+      // ============================================================
+      // 7B. STAGE 3: VR VEHICLES, FIRST-PERSON COCKPITS & DAMAGE
+      // ============================================================
+      const VEHICLE_MODELS = {
+        verano_gt: { name: 'Verano GT Coupe', price: 9500, topSpeed: 24, accel: 16, width: 2.0, length: 4.4, height: 1.32, defaultPaint: '#2563eb' },
+        east_sedan: { name: 'San Verano Sedan', price: 4500, topSpeed: 19, accel: 12, width: 1.95, length: 4.5, height: 1.42, defaultPaint: '#64748b' },
+        harbor_pickup: { name: 'Harbor Hauler Pickup', price: 7200, topSpeed: 18, accel: 11, width: 2.15, length: 4.9, height: 1.62, defaultPaint: '#d97706' },
+        titan_suv: { name: 'Downtown Executive SUV', price: 14500, topSpeed: 21, accel: 13, width: 2.15, length: 4.7, height: 1.68, defaultPaint: '#1e293b' },
+        apex_super: { name: 'Apex V10 Supercar', price: 32000, topSpeed: 31, accel: 22, width: 2.08, length: 4.5, height: 1.18, defaultPaint: '#dc2626' }
+      };
+
+      const worldVehicles = [];
+      let activeVehicle = null;
+      let vrWheelGrabCtrl = null;
+      let vrWheelGrabStartAngle = 0;
+      let vrWheelSteerBase = 0;
+
+      function createVehicleInstance(opts) {
+        const spec = VEHICLE_MODELS[opts.modelKey] || VEHICLE_MODELS.verano_gt;
+        const mods = Object.assign({
+          paint: spec.defaultPaint,
+          rims: '#cbd5e1',
+          spoiler: 'none',
+          interior: '#1e293b',
+          tint: 0.28,
+          engineLevel: 0,
+          suspension: 'stock'
+        }, opts.mods || {});
+
+        const root = new THREE.Group();
+        root.position.set(opts.x, 0, opts.z);
+        root.rotation.y = opts.yaw || 0;
+        scene.add(root);
+
+        const bodyGroup = new THREE.Group();
+        root.add(bodyGroup);
+
+        const paintMat = new THREE.MeshStandardMaterial({ color: mods.paint, metalness: 0.45, roughness: 0.3 });
+        const trimMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.65 });
+        const interiorMat = new THREE.MeshStandardMaterial({ color: mods.interior, roughness: 0.8 });
+        const rimMat = new THREE.MeshStandardMaterial({ color: mods.rims, metalness: 0.75, roughness: 0.25 });
+        const tireMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.9 });
+        const glassMat = new THREE.MeshStandardMaterial({
+          color: 0x0f172a, transparent: true, opacity: mods.tint, roughness: 0.1, metalness: 0.25
+        });
+
+        // Lower chassis, hood & trunk (leaving open interior cabin for first-person VR view!)
+        const floorPan = new THREE.Mesh(new THREE.BoxGeometry(spec.width - 0.1, 0.24, spec.length), trimMat);
+        floorPan.position.set(0, 0.42, 0);
+        bodyGroup.add(floorPan);
+
+        // Front hood
+        const hood = new THREE.Mesh(new THREE.BoxGeometry(spec.width, 0.52, spec.length * 0.34), paintMat);
+        hood.position.set(0, 0.72, -spec.length * 0.33);
+        hood.castShadow = true;
+        bodyGroup.add(hood);
+
+        // Rear trunk
+        const trunk = new THREE.Mesh(new THREE.BoxGeometry(spec.width, 0.56, spec.length * 0.26), paintMat);
+        trunk.position.set(0, 0.74, spec.length * 0.36);
+        trunk.castShadow = true;
+        bodyGroup.add(trunk);
+
+        // Side doors (lower half so you can see out cleanly in VR)
+        const doorL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.52, spec.length * 0.44), paintMat);
+        doorL.position.set(-spec.width / 2 + 0.06, 0.72, 0.02);
+        const doorR = doorL.clone();
+        doorR.position.x = spec.width / 2 - 0.06;
+        bodyGroup.add(doorL, doorR);
+
+        // Roof & thin A/B pillars
+        const roof = new THREE.Mesh(new THREE.BoxGeometry(spec.width - 0.18, 0.08, spec.length * 0.42), paintMat);
+        roof.position.set(0, spec.height + 0.22, 0.12);
+        bodyGroup.add(roof);
+
+        [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => {
+          const p = new THREE.Mesh(new THREE.BoxGeometry(0.08, spec.height - 0.52, 0.08), trimMat);
+          p.position.set(sx * (spec.width / 2 - 0.12), 0.96 + (spec.height - 0.52) / 2, sz * 0.85 + 0.08);
+          bodyGroup.add(p);
+        });
+
+        // Windshield & Side Tint Glass
+        const windshield = new THREE.Mesh(new THREE.PlaneGeometry(spec.width - 0.24, 0.72), glassMat);
+        windshield.position.set(0, spec.height - 0.08, -0.78);
+        windshield.rotation.x = -0.35;
+        bodyGroup.add(windshield);
+
+        // Headlights & Taillights
+        const headMat = new THREE.MeshStandardMaterial({ color: 0xfef9c3, emissive: 0xfef08a, emissiveIntensity: 0.8 });
+        const tailMat = new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xdc2626, emissiveIntensity: 0.65 });
+        const hlL = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.14, 0.06), headMat);
+        hlL.position.set(-spec.width * 0.34, 0.76, -spec.length / 2 - 0.01);
+        const hlR = hlL.clone(); hlR.position.x = spec.width * 0.34;
+        const tlL = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.14, 0.06), tailMat);
+        tlL.position.set(-spec.width * 0.34, 0.78, spec.length / 2 + 0.01);
+        const tlR = tlL.clone(); tlR.position.x = spec.width * 0.34;
+        bodyGroup.add(hlL, hlR, tlL, tlR);
+
+        // --- FIRST-PERSON COCKPIT INTERIOR (Seats, Dash, Mirrors, Physical Steering Wheel) ---
+        // Driver & Passenger Seats
+        const seatL = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.65, 0.52), interiorMat);
+        seatL.position.set(-0.46, 0.82, 0.32);
+        const seatR = seatL.clone(); seatR.position.x = 0.46;
+        bodyGroup.add(seatL, seatR);
+
+        // Dashboard
+        const dash = new THREE.Mesh(new THREE.BoxGeometry(spec.width - 0.22, 0.34, 0.42), interiorMat);
+        dash.position.set(0, 0.94, -0.62);
+        bodyGroup.add(dash);
+
+        // Glowing Digital Speedometer Cluster on Dash
+        const dashGlow = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.34, 0.12),
+          new THREE.MeshBasicMaterial({ color: 0x3b82f6 })
+        );
+        dashGlow.position.set(-0.46, 1.0, -0.405);
+        bodyGroup.add(dashGlow);
+
+        // Rearview Mirror + Side Mirrors
+        const mirrorMat = new THREE.MeshStandardMaterial({ color: 0x93c5fd, metalness: 0.9, roughness: 0.1 });
+        const rearMirror = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.07, 0.03), mirrorMat);
+        rearMirror.position.set(0, spec.height + 0.1, -0.62);
+        bodyGroup.add(rearMirror);
+        const sideMirL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.1, 0.06), paintMat);
+        sideMirL.position.set(-spec.width / 2 - 0.08, 1.04, -0.52);
+        const sideMirR = sideMirL.clone(); sideMirR.position.x = spec.width / 2 + 0.08;
+        bodyGroup.add(sideMirL, sideMirR);
+
+        // Physically Grabbable Steering Wheel Pivot
+        const wheelPivot = new THREE.Group();
+        wheelPivot.position.set(-0.46, 1.02, -0.34);
+        wheelPivot.rotation.x = -0.32;
+        bodyGroup.add(wheelPivot);
+        const wheelRim = new THREE.Mesh(
+          new THREE.TorusGeometry(0.17, 0.022, 8, 20),
+          new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.5 })
+        );
+        const wheelSpoke = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.035, 0.025), rimMat);
+        const wheelMarker = new THREE.Mesh(
+          new THREE.BoxGeometry(0.03, 0.032, 0.032),
+          new THREE.MeshBasicMaterial({ color: 0x3b82f6 })
+        );
+        wheelMarker.position.set(0, 0.17, 0);
+        wheelPivot.add(wheelRim, wheelSpoke, wheelMarker);
+
+        // Optional Spoiler Group
+        const spoilerGroup = new THREE.Group();
+        const spLip = new THREE.Mesh(new THREE.BoxGeometry(spec.width - 0.2, 0.06, 0.18), trimMat);
+        spLip.position.set(0, 1.06, spec.length / 2 - 0.12);
+        const spWing = new THREE.Group();
+        const wingBlade = new THREE.Mesh(new THREE.BoxGeometry(spec.width, 0.06, 0.26), trimMat);
+        wingBlade.position.set(0, 1.32, spec.length / 2 - 0.14);
+        const strutL = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.28, 0.14), trimMat);
+        strutL.position.set(-0.55, 1.18, spec.length / 2 - 0.14);
+        const strutR = strutL.clone(); strutR.position.x = 0.55;
+        spWing.add(wingBlade, strutL, strutR);
+        spoilerGroup.add(spLip, spWing);
+        bodyGroup.add(spoilerGroup);
+
+        // Visual Damage Overlay (Dents / Scratches / Smoke)
+        const dentPlate = new THREE.Mesh(
+          new THREE.BoxGeometry(spec.width * 0.72, 0.18, 0.22),
+          new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.95 })
+        );
+        dentPlate.position.set(0, 0.96, -spec.length * 0.38);
+        dentPlate.visible = false;
+        bodyGroup.add(dentPlate);
+
+        const smokePuff = new THREE.Mesh(
+          new THREE.SphereGeometry(0.32, 8, 8),
+          new THREE.MeshBasicMaterial({ color: 0x64748b, transparent: true, opacity: 0.45 })
+        );
+        smokePuff.position.set(0, 1.3, -spec.length * 0.35);
+        smokePuff.visible = false;
+        bodyGroup.add(smokePuff);
+
+        // 4 Wheels
+        const wheelNodes = [];
+        const wheelPositions = [
+          [-spec.width / 2 - 0.02, 0.36, -spec.length * 0.32],
+          [ spec.width / 2 + 0.02, 0.36, -spec.length * 0.32],
+          [-spec.width / 2 - 0.02, 0.36,  spec.length * 0.32],
+          [ spec.width / 2 + 0.02, 0.36,  spec.length * 0.32]
+        ];
+        wheelPositions.forEach((wp, idx) => {
+          const wPivot = new THREE.Group();
+          wPivot.position.set(wp[0], wp[1], wp[2]);
+          const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.24, 14), tireMat);
+          tire.rotation.z = Math.PI / 2;
+          const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.26, 10), rimMat);
+          hub.rotation.z = Math.PI / 2;
+          wPivot.add(tire, hub);
+          root.add(wPivot);
+          wheelNodes.push({ pivot: wPivot, front: idx < 2 });
+        });
+
+        const veh = {
+          id: opts.id,
+          modelKey: opts.modelKey,
+          name: opts.name || spec.name,
+          owned: Boolean(opts.owned),
+          spec: spec,
+          mods: mods,
+          health: typeof opts.health === 'number' ? opts.health : 100,
+          destroyed: Boolean(opts.destroyed),
+          speed: 0,
+          steerAngle: 0,
+          root: root,
+          bodyGroup: bodyGroup,
+          wheelPivot: wheelPivot,
+          wheelNodes: wheelNodes,
+          mats: { paintMat, rimMat, interiorMat, glassMat, headMat },
+          spoilers: { spLip, spWing },
+          damageMeshes: { dentPlate, smokePuff },
+          hitbox: hood
+        };
+
+        veh.applyModsAndDamage = function () {
+          veh.mats.paintMat.color.set(veh.mods.paint);
+          veh.mats.rimMat.color.set(veh.mods.rims);
+          veh.mats.interiorMat.color.set(veh.mods.interior);
+          veh.mats.glassMat.opacity = veh.mods.tint;
+          veh.spoilers.spLip.visible = veh.mods.spoiler === 'lip';
+          veh.spoilers.spWing.visible = veh.mods.spoiler === 'wing';
+          veh.bodyGroup.position.y = veh.mods.suspension === 'lowered' ? -0.09 : (veh.mods.suspension === 'lifted' ? 0.14 : 0);
+          // Visual Damage
+          veh.damageMeshes.dentPlate.visible = veh.health < 70;
+          veh.damageMeshes.smokePuff.visible = veh.health < 35;
+          veh.mats.headMat.emissiveIntensity = veh.health < 45 ? 0.1 : 0.8;
+          veh.root.visible = !veh.destroyed;
+        };
+        veh.applyModsAndDamage();
+
+        worldVehicles.push(veh);
+        interactables.push({
+          mesh: hood,
+          kind: 'action',
+          getLabel: () => `Drive ${veh.name} (${veh.owned ? 'Owned' : 'Steal — Temporary'})`,
+          action: () => enterVehicle(veh)
+        });
+        interactables.push({
+          mesh: doorL,
+          kind: 'action',
+          getLabel: () => `Drive ${veh.name} (${veh.owned ? 'Owned' : 'Steal — Temporary'})`,
+          action: () => enterVehicle(veh)
+        });
+        return veh;
+      }
+
+      function spawnWorldVehiclesForSlot() {
+        // Clear previous vehicle meshes
+        worldVehicles.forEach(v => scene.remove(v.root));
+        worldVehicles.length = 0;
+
+        // 1. Spawn player's owned vehicles outside Apt 4B / Eastside curb
+        (gameState.ownedVehicles || []).forEach((ov, idx) => {
+          createVehicleInstance({
+            id: ov.id,
+            modelKey: ov.modelKey,
+            name: ov.name,
+            owned: true,
+            health: ov.health,
+            destroyed: ov.destroyed,
+            mods: ov.mods,
+            x: APT_ORIGIN.x - 10.5 - idx * 3.2,
+            z: APT_ORIGIN.z + 9.5,
+            yaw: Math.PI * 0.5
+          });
+        });
+
+        // 2. Spawn street-parked stealable temporary vehicles across districts
+        const streetCars = [
+          { id: 'stolen_east', modelKey: 'east_sedan', x: 54, z: 3, yaw: Math.PI * 0.5 },
+          { id: 'stolen_harbor', modelKey: 'harbor_pickup', x: 52, z: 68, yaw: 0 },
+          { id: 'stolen_downtown', modelKey: 'titan_suv', x: -6, z: -48, yaw: Math.PI * 0.5 },
+          { id: 'stolen_west', modelKey: 'apex_super', x: -62, z: -50, yaw: 0 }
+        ];
+        streetCars.forEach(sc => createVehicleInstance(Object.assign({ owned: false }, sc)));
+      }
+
+      function enterVehicle(veh) {
+        if (!veh || veh.destroyed || activeVehicle) return;
+        if (desktopHeldProp) toggleDesktopGrab();
+        activeVehicle = veh;
+        veh.speed = 0;
+        veh.steerAngle = 0;
+        // Seat player inside first-person cockpit
+        playerRig.position.set(0, 0, 0);
+        camera.position.set(0, renderer.xr.isPresenting ? 0 : 1.18, 0);
+        document.getElementById('drive-hud').style.display = 'flex';
+        document.getElementById('drive-car-name').textContent = veh.name;
+        updateDriveHUD();
+        audio.playDoor(true);
+        showToast(veh.owned
+          ? `Driving ${veh.name} — Press F to exit, H for horn.`
+          : `Stole ${veh.name} (Temporary — lost if wrecked!).`);
+      }
+
+      function exitVehicle() {
+        if (!activeVehicle) return;
+        const veh = activeVehicle;
+        veh.speed = 0;
+        audio.updateEngine(false, 0);
+        // Step out beside driver's left door
+        const sideOffset = new THREE.Vector3(-veh.spec.width * 0.85, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), veh.root.rotation.y);
+        playerRig.position.set(veh.root.position.x + sideOffset.x, 0, veh.root.position.z + sideOffset.z);
+        playerRig.rotation.y = veh.root.rotation.y;
+        camera.position.set(0, 1.65, 0);
+        activeVehicle = null;
+        vrWheelGrabCtrl = null;
+        document.getElementById('drive-hud').style.display = 'none';
+        audio.playDoor(false);
+        syncOwnedVehiclesToSave();
+      }
+
+      function syncOwnedVehiclesToSave() {
+        if (!gameState || !gameState.ownedVehicles) return;
+        gameState.ownedVehicles.forEach(ov => {
+          const live = worldVehicles.find(w => w.id === ov.id);
+          if (live) {
+            ov.health = Math.round(live.health);
+            ov.destroyed = live.destroyed;
+            ov.mods = Object.assign({}, live.mods);
+          }
+        });
+      }
+
+      function updateDriveHUD() {
+        if (!activeVehicle) return;
+        const mph = Math.round(Math.abs(activeVehicle.speed) * 2.237);
+        document.getElementById('drive-speed').textContent = mph;
+        const hp = Math.max(0, Math.round(activeVehicle.health));
+        document.getElementById('drive-car-status').textContent =
+          `${activeVehicle.owned ? 'OWNED' : 'STOLEN'} • Body ${hp}%`;
+        const bar = document.getElementById('drive-health-bar');
+        bar.style.width = hp + '%';
+        bar.style.background = hp > 60 ? '#22c55e' : (hp > 30 ? '#f59e0b' : '#ef4444');
+        const mode = gameState.settings.steeringMode === 'physical' ? 'Physical Wheel' : 'Joystick';
+        document.getElementById('btn-toggle-steer').textContent = 'Steer: ' + mode;
+        // Show Mod Shop button when near Southside Auto & Mod Shop (-46, 48)
+        const nearModShop = Math.hypot(activeVehicle.root.position.x - (-46), activeVehicle.root.position.z - 52) < 14;
+        document.getElementById('btn-open-modshop').style.display = nearModShop ? 'inline-flex' : 'none';
+      }
+
+      // ============================================================
+      // 8. GRABBABLE PROPS + CITY-WIDE COLLECTIBLE CACHES
+      // ============================================================
+      function createProp(opts) {
+        const mesh = new THREE.Mesh(opts.geo, opts.mat);
+        mesh.position.set(opts.x, opts.y, opts.z);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        if (opts.parent) opts.parent.add(mesh);
+        else scene.add(mesh);
+
+        const prop = {
+          id: opts.id,
+          name: opts.name,
+          category: opts.category || 'Miscellaneous',
+          value: opts.value || 0,
+          cashAmount: opts.cashAmount || 0,
+          stashable: Boolean(opts.stashable),
+          mesh: mesh,
+          vel: new THREE.Vector3(),
+          radius: opts.radius || 0.08,
+          isHeld: false,
+          collected: false,
+          inDrawer: Boolean(opts.parent)
+        };
+        grabbables.push(prop);
+        interactables.push({
+          mesh: mesh,
+          kind: 'prop',
+          prop: prop,
+          getLabel: () => prop.cashAmount > 0
+            ? `Take ${prop.name} (+$${prop.cashAmount})`
+            : (prop.stashable ? `Collect ${prop.name} ($${prop.value})` : `Grab ${prop.name}`)
+        });
+        return prop;
+      }
+
+      // Apartment Props & Loot
+      createProp({ id: 'prop_mug', name: 'Ceramic Coffee Mug', geo: new THREE.CylinderGeometry(0.048, 0.042, 0.11, 12), mat: new THREE.MeshStandardMaterial({ color: 0xf8fafc }), x: AX - 0.45, y: 0.48, z: AZ - 0.45, radius: 0.06 });
+      createProp({ id: 'prop_vanta_phone', name: 'VANTA Smartphone', geo: new THREE.BoxGeometry(0.075, 0.012, 0.155), mat: new THREE.MeshStandardMaterial({ color: 0x0f172a, emissive: 0x1d4ed8, emissiveIntensity: 0.4 }), x: AX + 0.05, y: 0.43, z: AZ - 0.42, radius: 0.05 });
+      createProp({ id: 'prop_soda', name: 'Soda Can', geo: new THREE.CylinderGeometry(0.034, 0.034, 0.125, 12), mat: new THREE.MeshStandardMaterial({ color: 0x22c55e, metalness: 0.6 }), x: AX + 3.3, y: 1.03, z: AZ + 0.9, radius: 0.06 });
+      createProp({ id: 'prop_dumbbell', name: 'Cast-Iron Dumbbell', geo: new THREE.CylinderGeometry(0.05, 0.05, 0.28, 10), mat: new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.7 }), x: AX + 1.5, y: 0.06, z: AZ + 1.4, radius: 0.06 });
+      createProp({ id: 'loot_watch', name: 'Gold Chronometer Watch', category: 'Valuables', value: 450, stashable: true, geo: new THREE.TorusGeometry(0.042, 0.014, 8, 16), mat: new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.85 }), x: 0, y: 0.02, z: 0.05, radius: 0.05, parent: deskDrawerGroup });
+      createProp({ id: 'loot_night_cash', name: 'Emergency Cash Roll', cashAmount: 250, stashable: true, geo: new THREE.BoxGeometry(0.14, 0.035, 0.07), mat: new THREE.MeshStandardMaterial({ color: 0x16a34a }), x: 0.02, y: 0.01, z: 0, radius: 0.05, parent: nightDrawerGroup });
+      createProp({ id: 'loot_safe_cash', name: 'Safe Stash Bundle', cashAmount: 500, stashable: true, geo: new THREE.BoxGeometry(0.16, 0.06, 0.09), mat: new THREE.MeshStandardMaterial({ color: 0x15803d }), x: AX - 3.72, y: 1.13, z: AZ + 2.75, radius: 0.06 });
+      createProp({ id: 'loot_data_drive', name: 'Encrypted VANTA Drive', category: 'Collectibles', value: 300, stashable: true, geo: new THREE.BoxGeometry(0.08, 0.025, 0.12), mat: new THREE.MeshStandardMaterial({ color: 0x2563eb, emissive: 0x1d4ed8, emissiveIntensity: 0.45 }), x: AX - 3.72, y: 1.13, z: AZ + 2.58, radius: 0.05 });
+
+      // City-Wide VANTA Data Caches (1 per District!)
+      const CITY_CACHES = [
+        { id: 'cache_downtown', name: 'Downtown VANTA Cache', x: 4, z: -64, value: 600, district: 'Downtown' },
+        { id: 'cache_westhills', name: 'West Hills Gold Briefcase', x: -82, z: -56, value: 850, district: 'West Hills' },
+        { id: 'cache_harbor', name: 'Harbor Manifest Drive', x: 64, z: 60, value: 650, district: 'Harbor District' },
+        { id: 'cache_southside', name: 'Southside Stash Box', x: -72, z: 68, value: 550, district: 'Southside' },
+        { id: 'cache_eastside', name: 'Eastside Alley Cache', x: 78, z: -28, value: 450, district: 'Eastside' }
+      ];
+      CITY_CACHES.forEach(c => {
+        createProp({
+          id: c.id, name: c.name, category: 'Collectibles', value: c.value, stashable: true,
+          geo: new THREE.BoxGeometry(0.42, 0.24, 0.32),
+          mat: new THREE.MeshStandardMaterial({ color: 0x2563eb, emissive: 0x3b82f6, emissiveIntensity: 0.55, metalness: 0.5 }),
+          x: c.x, y: 0.22, z: c.z, radius: 0.18
+        });
+      });
+
+      // Hip-mounted VANTA Phone (grab off right hip in VR or look down & interact)
+      interactables.push({
+        mesh: hipPhoneBody,
+        kind: 'action',
+        getLabel: () => 'Grab VANTA Phone from Hip',
+        action: () => { openVantaPhone('home'); }
+      });
+
+      // Apartment Interactive Controls
+      interactables.push(
+        {
+          mesh: frontDoorMesh, kind: 'action',
+          getLabel: () => gameState.safehouse.frontDoorOpen ? 'Close Front Door' : 'Open Front Door (Exit to San Verano)',
+          action: () => { gameState.safehouse.frontDoorOpen = !gameState.safehouse.frontDoorOpen; audio.playDoor(gameState.safehouse.frontDoorOpen); }
+        },
+        {
+          mesh: balconyDoorFrame, kind: 'action',
+          getLabel: () => gameState.safehouse.balconyDoorOpen ? 'Close Patio Door' : 'Open Patio Door',
+          action: () => { gameState.safehouse.balconyDoorOpen = !gameState.safehouse.balconyDoorOpen; audio.playDoor(gameState.safehouse.balconyDoorOpen); }
+        },
+        {
+          mesh: switchToggle, kind: 'action',
+          getLabel: () => gameState.safehouse.lightsOn ? 'Turn Apartment Lights OFF' : 'Turn Apartment Lights ON',
+          action: () => { gameState.safehouse.lightsOn = !gameState.safehouse.lightsOn; applySafehouseVisuals(); audio.playClick(); }
+        },
+        {
+          mesh: deskDrawerBox, kind: 'action',
+          getLabel: () => gameState.safehouse.deskDrawerOpen ? 'Close Desk Drawer' : 'Open Desk Drawer',
+          action: () => { gameState.safehouse.deskDrawerOpen = !gameState.safehouse.deskDrawerOpen; audio.playDrawer(gameState.safehouse.deskDrawerOpen); }
+        },
+        {
+          mesh: nightDrawerBox, kind: 'action',
+          getLabel: () => gameState.safehouse.nightstandOpen ? 'Close Nightstand Drawer' : 'Open Nightstand Drawer',
+          action: () => { gameState.safehouse.nightstandOpen = !gameState.safehouse.nightstandOpen; audio.playDrawer(gameState.safehouse.nightstandOpen); }
+        },
+        {
+          mesh: safeDoorMesh, kind: 'action',
+          getLabel: () => gameState.safehouse.safeOpen ? 'Close Wall Safe' : 'Unlock & Open Wall Safe',
+          action: () => {
+            gameState.safehouse.safeOpen = !gameState.safehouse.safeOpen;
+            audio.playDoor(gameState.safehouse.safeOpen);
+            if (gameState.safehouse.safeOpen) showToast('Wall Safe unlocked.');
+          }
+        },
+        {
+          mesh: tvScreen, kind: 'action',
+          getLabel: () => gameState.safehouse.tvOn ? 'Turn Smart TV OFF' : 'Turn Smart TV ON',
+          action: () => { gameState.safehouse.tvOn = !gameState.safehouse.tvOn; applySafehouseVisuals(); audio.playClick(); }
+        },
+        {
+          mesh: vantaScreen, kind: 'action',
+          getLabel: () => 'Open VANTA Safehouse Terminal (Save / Inventory)',
+          action: () => { audio.playClick(); openPauseMenu(); }
+        }
+      );
+
+      // ============================================================
+      // 9. GAME STATE, VANTA SMARTPHONE OS & SV MAPS
+      // ============================================================
+      let selectedSlotId = 1;
+      let gameState = createDefaultSlot(1, 'Marcus Vance');
+      let isPlaying = false;
+      let isPaused = false;
+      let isPhoneOpen = false;
+      let currentVantaApp = 'home';
+      let pendingDeleteSlotId = null;
+      const sessionPhotos = [];
+      const mapFilters = { home: true, garage: true, shop: true, mission: true, collectible: true, police: true, rival: true };
+
+      let playerVelY = 0;
+      let isGrounded = true;
+      let isSwimming = false;
+      let stepTimer = 0;
+      let autosaveTimer = 0;
+      let desktopHeldProp = null;
+      let desktopLookPitch = 0;
+      let isPointerLocked = false;
+      const keys = {};
+      const touchMove = { x: 0, y: 0 };
+
+      // UI Elements
+      const hudEl = document.getElementById('hud');
+      const titleOverlay = document.getElementById('title-overlay');
+      const pauseOverlay = document.getElementById('pause-overlay');
+      const vantaOverlay = document.getElementById('vanta-overlay');
+      const vantaShell = document.getElementById('vanta-shell');
+      const vantaBody = document.getElementById('vanta-body');
+      const vantaAppTitle = document.getElementById('vanta-app-title');
+      const confirmOverlay = document.getElementById('confirm-overlay');
+      const slotsGrid = document.getElementById('slots-grid');
+      const charNameInput = document.getElementById('char-name-input');
+      const newCharRow = document.getElementById('new-char-row');
+      const xrStatusBadge = document.getElementById('xr-status-badge');
+      const crosshair = document.getElementById('crosshair');
+      const interactPrompt = document.getElementById('interact-prompt');
+      const heldIndicator = document.getElementById('held-indicator');
+      const heldNameEl = document.getElementById('held-name');
+      const gpsBanner = document.getElementById('gps-banner');
+      const gpsText = document.getElementById('gps-text');
+      const swimBanner = document.getElementById('swim-banner');
+      const touchControls = document.getElementById('touch-controls');
+
+      function escapeHtml(str) {
+        return String(str).replace(/[&<>"']/g, s => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[s]));
+      }
+
+      function showToast(msg) {
+        const box = document.getElementById('toast-container');
+        const el = document.createElement('div');
+        el.className = 'toast';
+        el.textContent = msg;
+        box.appendChild(el);
+        setTimeout(() => {
+          el.style.opacity = '0';
+          el.style.transition = 'opacity 0.25s ease';
+          setTimeout(() => el.remove(), 260);
+        }, 2600);
+      }
+
+      function addXP(amount) {
+        gameState.xp += amount;
+        const needed = gameState.level * 200;
+        while (gameState.xp >= needed && gameState.level < 100) {
+          gameState.xp -= needed;
+          gameState.level += 1;
+          showToast(`LEVEL UP! You reached Level ${gameState.level}`);
+          audio.playLoot();
+        }
+        updateHUD();
+      }
+
+      function updateHUD() {
+        document.getElementById('hud-slot').textContent = gameState.slotId;
+        document.getElementById('hud-level').textContent = gameState.level;
+        document.getElementById('hud-cash').textContent = '$' + gameState.cash.toLocaleString();
+        document.getElementById('hud-location').textContent = gameState.district;
+        document.getElementById('vanta-district-bar').textContent = gameState.district;
+        refreshHipPhoneScreen();
+        const muteLabel = audio.muted ? 'Sound: OFF' : 'Sound: ON';
+        document.getElementById('btn-hud-mute').textContent = muteLabel;
+        document.getElementById('btn-pause-mute').textContent = muteLabel;
+      }
+
+      function setGPSTarget(name, x, z) {
+        gameState.gpsTarget = { name, x, z };
+        gpsBeacon.position.set(x, 0, z);
+        gpsBeacon.visible = true;
+        gpsBanner.style.display = 'flex';
+        showToast('GPS set: ' + name);
+        audio.playPhone();
+      }
+
+      function clearGPSTarget() {
+        gameState.gpsTarget = null;
+        gpsBeacon.visible = false;
+        gpsBanner.style.display = 'none';
+      }
+
+      function applySafehouseVisuals() {
+        const sh = gameState.safehouse;
+        ceilingLight.intensity = sh.lightsOn ? 0.85 : 0.0;
+        lampLight.intensity = sh.lightsOn ? 0.55 : 0.0;
+        ceilingFixture.material.emissiveIntensity = sh.lightsOn ? 0.9 : 0.05;
+        lampShade.material.emissiveIntensity = sh.lightsOn ? 0.6 : 0.0;
+        switchToggle.material.emissiveIntensity = sh.lightsOn ? 0.6 : 0.1;
+
+        tvScreenMat.map = makeTVTexture(sh.tvOn);
+        tvScreenMat.emissiveIntensity = sh.tvOn ? 0.35 : 0.0;
+        tvScreenMat.needsUpdate = true;
+
+        grabbables.forEach(p => {
+          const isCollected = sh.collectedIds.includes(p.id);
+          p.collected = isCollected;
+          p.mesh.visible = !isCollected;
+        });
+
+        vantaShell.className = 'vanta-shell ' + (gameState.settings.wallpaper || 'wp-cobalt');
+      }
+
+      function saveCurrentSlot(reason) {
+        gameState.playerPos = {
+          x: Number(playerRig.position.x.toFixed(2)),
+          y: 0,
+          z: Number(playerRig.position.z.toFixed(2)),
+          yaw: Number(playerRig.rotation.y.toFixed(3))
+        };
+        gameState.settings.muted = audio.muted;
+        writeSlot(gameState);
+        if (reason) {
+          audio.playSave();
+          showToast(reason + ' — Slot ' + gameState.slotId);
+        }
+      }
+
+      function loadSlotIntoWorld(slotId) {
+        let data = readSlot(slotId);
+        if (!data) {
+          const enteredName = (charNameInput.value || '').trim() || ('Player ' + slotId);
+          data = createDefaultSlot(slotId, enteredName);
+          writeSlot(data);
+        }
+        gameState = data;
+        audio.muted = Boolean(gameState.settings && gameState.settings.muted);
+        playerRig.position.set(gameState.playerPos.x, 0, gameState.playerPos.z);
+        playerRig.rotation.y = typeof gameState.playerPos.yaw === 'number' ? gameState.playerPos.yaw : 0;
+        desktopLookPitch = 0;
+        camera.rotation.set(0, 0, 0);
+
+        document.getElementById('range-turn-speed').value = gameState.settings.turnSpeed || 1.8;
+        document.getElementById('val-turn-speed').textContent = (gameState.settings.turnSpeed || 1.8).toFixed(1);
+        document.getElementById('range-move-speed').value = gameState.settings.moveSpeed || 3.2;
+        document.getElementById('val-move-speed').textContent = (gameState.settings.moveSpeed || 3.2).toFixed(1);
+
+        if (gameState.gpsTarget) {
+          gpsBeacon.position.set(gameState.gpsTarget.x, 0, gameState.gpsTarget.z);
+          gpsBeacon.visible = true;
+          gpsBanner.style.display = 'flex';
+        } else {
+          clearGPSTarget();
+        }
+
+        if (activeVehicle) exitVehicle();
+        spawnWorldVehiclesForSlot();
+        applySafehouseVisuals();
+        updateHUD();
+      }
+
+      // --- VANTA SMARTPHONE UI ---
+      function openVantaPhone(appId) {
+        if (!isPlaying) return;
+        isPhoneOpen = true;
+        isPaused = false;
+        pauseOverlay.classList.add('hidden');
+        if (document.pointerLockElement) document.exitPointerLock();
+        vantaOverlay.classList.remove('hidden');
+        audio.playPhone();
+        renderVantaApp(appId || 'home');
+      }
+
+      function closeVantaPhone() {
+        isPhoneOpen = false;
+        vantaOverlay.classList.add('hidden');
+      }
+
+      function renderVantaApp(appId) {
+        currentVantaApp = appId;
+        const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        document.getElementById('vanta-clock').textContent = 'VANTA OS • ' + nowStr;
+        document.getElementById('vanta-district-bar').textContent = gameState.district;
+
+        if (appId === 'home') {
+          vantaAppTitle.textContent = 'VANTA Home';
+          const apps = [
+            { id: 'maps', bg: 'linear-gradient(145deg,#3b82f6,#1d4ed8)', name: 'SV Maps', sub: 'World Map & GPS',
+              svg: '<svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>' },
+            { id: 'contacts', bg: 'linear-gradient(145deg,#22c55e,#15803d)', name: 'Contacts', sub: 'San Verano Intel',
+              svg: '<svg viewBox="0 0 24 24"><path d="M6.62 10.79a15.05 15.05 0 0 0 6.59 6.59l2.2-2.2a1 1 0 0 1 1.01-.24c1.12.37 2.33.57 3.58.57a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1C10.61 21 3 13.39 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.46.57 3.58a1 1 0 0 1-.25 1.01l-2.2 2.2z"/></svg>' },
+            { id: 'garage', bg: 'linear-gradient(145deg,#8b5cf6,#5b21b6)', name: 'Garage', sub: 'Owned Vehicles',
+              svg: '<svg viewBox="0 0 24 24"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1v-1h12v1a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1v-8l-2.08-5.99zM6.5 16a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm11 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zM5 11l1.5-4.5h11L19 11H5z"/></svg>' },
+            { id: 'properties', bg: 'linear-gradient(145deg,#10b981,#047857)', name: 'Properties', sub: 'Homes & Storage',
+              svg: '<svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>' },
+            { id: 'inventory', bg: 'linear-gradient(145deg,#f59e0b,#b45309)', name: 'Inventory', sub: 'Items & Loot',
+              svg: '<svg viewBox="0 0 24 24"><path d="M20 6h-4V4c0-1.1-.9-2-2-2h-4c-1.1 0-2 .9-2 2v2H4c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-10-2h4v2h-4V4zm10 15H4V10h16v9z"/></svg>' },
+            { id: 'missions', bg: 'linear-gradient(145deg,#eab308,#a16207)', name: 'Missions', sub: 'Recon & Jobs',
+              svg: '<svg viewBox="0 0 24 24"><path d="M12 2l2.9 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l7.1-1.01L12 2z"/></svg>' },
+            { id: 'stats', bg: 'linear-gradient(145deg,#06b6d4,#0369a1)', name: 'Statistics', sub: 'Level & Records',
+              svg: '<svg viewBox="0 0 24 24"><path d="M4 19h4v-7H4v7zm6 0h4V5h-4v14zm6 0h4v-10h-4v10z"/></svg>' },
+            { id: 'camera', bg: 'linear-gradient(145deg,#64748b,#1e293b)', name: 'Camera', sub: 'In-Game Photos',
+              svg: '<svg viewBox="0 0 24 24"><path d="M9 3L7.17 5H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.17L15 3H9zm3 14a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z"/><circle cx="12" cy="12.5" r="2.5"/></svg>' },
+            { id: 'settings', bg: 'linear-gradient(145deg,#475569,#0f172a)', name: 'Settings', sub: 'Wallpaper & VR',
+              svg: '<svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.1 7.1 0 0 0-1.63-.94l-.36-2.54a.49.49 0 0 0-.49-.42h-3.84a.49.49 0 0 0-.49.42l-.36 2.54c-.58.23-1.13.54-1.63.94l-2.39-.96a.5.5 0 0 0-.61.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .61.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54c.04.24.25.42.49.42h3.84c.24 0 .45-.18.49-.42l.36-2.54c.58-.22 1.13-.54 1.63-.94l2.39.96a.5.5 0 0 0 .61-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg>' }
+          ];
+          vantaBody.innerHTML = `<div class="vanta-app-grid">${apps.map(a => `
+            <div class="vanta-app-tile" data-vanta-app="${a.id}">
+              <div class="vanta-app-icon" style="background:${a.bg}">${a.svg}</div>
+              <div class="vanta-app-label">${a.name}</div>
+              <div class="vanta-app-sub">${a.sub}</div>
+            </div>`).join('')}</div>`;
+          vantaBody.querySelectorAll('[data-vanta-app]').forEach(el => {
+            el.addEventListener('click', () => {
+              audio.playClick();
+              renderVantaApp(el.getAttribute('data-vanta-app'));
+            });
+          });
+          return;
+        }
+
+        if (appId === 'maps') {
+          vantaAppTitle.textContent = 'SV Maps — San Verano GPS';
+          const filterDefs = [
+            { key: 'home', label: 'Safehouses', svg: '<svg viewBox="0 0 24 24"><path fill="#22c55e" stroke="#020617" stroke-width="2" d="M12 3l9 8h-3v9h-5v-6h-2v6H6v-9H3z"/></svg>' },
+            { key: 'garage', label: 'Garages', svg: '<svg viewBox="0 0 24 24"><path fill="#a855f7" stroke="#020617" stroke-width="2" d="M3 10l9-6 9 6v10h-3v-7H6v7H3z"/></svg>' },
+            { key: 'shop', label: 'Pawn & Mod Shops', svg: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="#f59e0b" stroke="#020617" stroke-width="2"/><text x="12" y="16" text-anchor="middle" fill="#020617" font-size="13" font-weight="900">$</text></svg>' },
+            { key: 'mission', label: 'Missions & Piers', svg: '<svg viewBox="0 0 24 24"><path fill="#facc15" stroke="#020617" stroke-width="2" d="M12 2l3 6.5 7 .8-5 4.8 1.3 6.9L12 17.6 5.7 21 7 14.1 2 9.3l7-.8z"/></svg>' },
+            { key: 'collectible', label: 'VANTA Caches', svg: '<svg viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="12" rx="2" fill="#38bdf8" stroke="#020617" stroke-width="2"/><path fill="none" stroke="#020617" stroke-width="2" d="M9 7V5h6v2"/></svg>' },
+            { key: 'police', label: 'SVPD Precinct', svg: '<svg viewBox="0 0 24 24"><path fill="#3b82f6" stroke="#ffffff" stroke-width="2" d="M12 2l8 3v6c0 5-3.4 9.5-8 11-4.6-1.5-8-6-8-11V5z"/></svg>' },
+            { key: 'rival', label: 'Rival Turf', svg: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#ef4444" stroke="#020617" stroke-width="2"/><path stroke="#ffffff" stroke-width="2" d="M8 8l8 8M16 8l-8 8"/></svg>' }
+          ];
+          vantaBody.innerHTML = `
+            <div class="map-wrap">
+              <div>
+                <canvas id="sv-map-canvas" width="520" height="360"></canvas>
+                <div style="font-size:11px; color:var(--muted); margin-top:6px;">
+                  Click any landmark or spot on the map to set a 3D cobalt-blue GPS waypoint.
+                </div>
+              </div>
+              <div class="map-sidebar">
+                <div style="font-weight:700; color:#93c5fd;">RADAR BLIPS</div>
+                ${filterDefs.map(f => `
+                  <div class="filter-chip ${mapFilters[f.key] ? '' : 'off'}" data-map-filter="${f.key}">
+                    <span><span class="legend-icon">${f.svg}</span>${f.label}</span>
+                    <span>${mapFilters[f.key] ? 'ON' : 'OFF'}</span>
+                  </div>`).join('')}
+                <button class="btn btn-danger btn-sm" id="btn-map-clear-gps">Clear GPS Waypoint</button>
+              </div>
+            </div>`;
+          vantaBody.querySelectorAll('[data-map-filter]').forEach(chip => {
+            chip.addEventListener('click', () => {
+              const k = chip.getAttribute('data-map-filter');
+              mapFilters[k] = !mapFilters[k];
+              audio.playClick();
+              renderVantaApp('maps');
+            });
+          });
+          document.getElementById('btn-map-clear-gps').addEventListener('click', () => {
+            clearGPSTarget();
+            drawSVMap();
+            showToast('GPS cleared.');
+          });
+          const mapCanvas = document.getElementById('sv-map-canvas');
+          mapCanvas.addEventListener('click', (e) => {
+            const rect = mapCanvas.getBoundingClientRect();
+            const mx = (e.clientX - rect.left) / rect.width;
+            const mz = (e.clientY - rect.top) / rect.height;
+            const worldX = mx * 240 - 120;
+            const worldZ = mz * 240 - 120;
+            // Snap to nearest visible POI if close
+            let chosen = { name: `Custom Pin (${Math.round(worldX)}, ${Math.round(worldZ)})`, x: worldX, z: worldZ };
+            WORLD_POIS.forEach(p => {
+              if (!mapFilters[p.cat]) return;
+              if (Math.hypot(p.x - worldX, p.z - worldZ) < 14) chosen = { name: p.name, x: p.x, z: p.z };
+            });
+            setGPSTarget(chosen.name, chosen.x, chosen.z);
+            drawSVMap();
+          });
+          drawSVMap();
+          return;
+        }
+
+        if (appId === 'contacts') {
+          vantaAppTitle.textContent = 'Contacts';
+          vantaBody.innerHTML = `<div class="vanta-list">${CONTACTS_LIST.map(c => `
+            <div class="vanta-row">
+              <div>
+                <strong>${escapeHtml(c.name)}</strong>
+                <span>${escapeHtml(c.role)}</span>
+              </div>
+              <button class="btn btn-primary btn-sm" data-call-contact="${c.id}">Call</button>
+            </div>`).join('')}</div>
+            <div id="contact-msg-box" style="margin-top:12px; padding:12px; border-radius:12px; background:rgba(37,99,235,0.14); border:1px solid var(--border); font-size:13px; color:#dbeafe; display:none;"></div>`;
+          vantaBody.querySelectorAll('[data-call-contact]').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const c = CONTACTS_LIST.find(x => x.id === btn.getAttribute('data-call-contact'));
+              if (!c) return;
+              audio.playRing();
+              const box = document.getElementById('contact-msg-box');
+              box.style.display = 'block';
+              box.innerHTML = `<strong>${escapeHtml(c.name)}:</strong> "${escapeHtml(c.msg)}"`;
+            });
+          });
+          return;
+        }
+
+        if (appId === 'garage') {
+          vantaAppTitle.textContent = 'Garage & Vehicle Dealership';
+          syncOwnedVehiclesToSave();
+          const cap = gameState.ownedProperties.reduce((acc, pid) => {
+            const p = PROPERTIES_CATALOG.find(x => x.id === pid);
+            return acc + (p ? p.garageSlots : 0);
+          }, 0);
+          const owned = gameState.ownedVehicles || [];
+          vantaBody.innerHTML = `
+            <div class="vanta-row" style="margin-bottom:12px;">
+              <div><strong>Garage Capacity</strong><span>Buy more properties to expand storage</span></div>
+              <strong style="color:#60a5fa; font-size:18px;">${owned.length} / ${cap} Slots</strong>
+            </div>
+            <div style="font-size:11px; font-weight:800; color:#60a5fa; margin:10px 0 6px;">YOUR OWNED VEHICLES</div>
+            <div class="vanta-list">
+              ${owned.map(ov => `
+                <div class="vanta-row">
+                  <div>
+                    <strong>${escapeHtml(ov.name)} ${ov.destroyed ? '<span style="color:#ef4444;">[WRECKED]</span>' : `<span style="color:#22c55e;">[${ov.health}%]</span>`}</strong>
+                    <span>Engine Lv.${(ov.mods && ov.mods.engineLevel) || 0} • Mods Retained</span>
+                  </div>
+                  <div style="display:flex; gap:6px;">
+                    ${ov.destroyed
+                      ? `<button class="btn btn-primary btn-sm" data-veh-recover="${ov.id}">Recover ($200)</button>`
+                      : `<button class="btn btn-sm" data-veh-summon="${ov.id}">Deliver to Curb</button>`}
+                    ${owned.length > 1 ? `<button class="btn btn-danger btn-sm" data-veh-sell="${ov.id}">Sell</button>` : ''}
+                  </div>
+                </div>`).join('')}
+            </div>
+            <div style="font-size:11px; font-weight:800; color:#60a5fa; margin:14px 0 6px;">SAN VERANO DEALERSHIP</div>
+            <div class="vanta-list">
+              ${Object.entries(VEHICLE_MODELS).map(([k, m]) => `
+                <div class="vanta-row">
+                  <div>
+                    <strong>${escapeHtml(m.name)}</strong>
+                    <span>Top Speed: ${Math.round(m.topSpeed * 2.237)} MPH • $${m.price.toLocaleString()}</span>
+                  </div>
+                  <button class="btn btn-primary btn-sm" data-veh-buy="${k}">Buy $${m.price.toLocaleString()}</button>
+                </div>`).join('')}
+            </div>`;
+
+          vantaBody.querySelectorAll('[data-veh-recover]').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const id = btn.getAttribute('data-veh-recover');
+              const ov = gameState.ownedVehicles.find(v => v.id === id);
+              const live = worldVehicles.find(v => v.id === id);
+              if (!ov || !live) return;
+              if (gameState.cash < 200) { showToast('Need $200 to recover vehicle.'); return; }
+              gameState.cash -= 200;
+              ov.destroyed = false; ov.health = 100;
+              live.destroyed = false; live.health = 100;
+              live.root.position.set(APT_ORIGIN.x - 10.5, 0, APT_ORIGIN.z + 9.5);
+              live.root.rotation.y = Math.PI * 0.5;
+              live.applyModsAndDamage();
+              updateHUD();
+              saveCurrentSlot('Vehicle Recovered');
+              renderVantaApp('garage');
+            });
+          });
+          vantaBody.querySelectorAll('[data-veh-summon]').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const id = btn.getAttribute('data-veh-summon');
+              const live = worldVehicles.find(v => v.id === id);
+              if (!live) return;
+              live.root.position.set(playerRig.position.x + 4.5, 0, playerRig.position.z + 4.5);
+              showToast(`${live.name} delivered nearby!`);
+              closeVantaPhone();
+            });
+          });
+          vantaBody.querySelectorAll('[data-veh-sell]').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const id = btn.getAttribute('data-veh-sell');
+              const idx = gameState.ownedVehicles.findIndex(v => v.id === id);
+              if (idx < 0) return;
+              const ov = gameState.ownedVehicles[idx];
+              const m = VEHICLE_MODELS[ov.modelKey] || VEHICLE_MODELS.verano_gt;
+              const refund = Math.round(m.price * 0.6);
+              if (activeVehicle && activeVehicle.id === id) exitVehicle();
+              gameState.ownedVehicles.splice(idx, 1);
+              gameState.cash += refund;
+              spawnWorldVehiclesForSlot();
+              updateHUD();
+              saveCurrentSlot(`Sold ${ov.name} (+$${refund})`);
+              renderVantaApp('garage');
+            });
+          });
+          vantaBody.querySelectorAll('[data-veh-buy]').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const key = btn.getAttribute('data-veh-buy');
+              const m = VEHICLE_MODELS[key];
+              if (!m) return;
+              if (gameState.ownedVehicles.length >= cap) {
+                showToast('Garage full! Buy another property or garage first.');
+                return;
+              }
+              if (gameState.cash < m.price) {
+                showToast(`Need $${(m.price - gameState.cash).toLocaleString()} more cash.`);
+                return;
+              }
+              gameState.cash -= m.price;
+              const newVeh = {
+                id: 'veh_' + Date.now(),
+                modelKey: key,
+                name: m.name,
+                destroyed: false,
+                health: 100,
+                mods: { paint: m.defaultPaint, rims: '#cbd5e1', spoiler: 'none', interior: '#1e293b', tint: 0.28, engineLevel: 0, suspension: 'stock' }
+              };
+              gameState.ownedVehicles.push(newVeh);
+              spawnWorldVehiclesForSlot();
+              addXP(150);
+              saveCurrentSlot(`Purchased ${m.name}`);
+              renderVantaApp('garage');
+            });
+          });
+          return;
+        }
+
+        if (appId === 'properties') {
+          vantaAppTitle.textContent = 'San Verano Properties';
+          vantaBody.innerHTML = `<div class="vanta-list">${PROPERTIES_CATALOG.map(p => {
+            const owned = gameState.ownedProperties.includes(p.id);
+            return `<div class="vanta-row">
+              <div>
+                <strong>${escapeHtml(p.name)} ${owned ? '<span style="color:#22c55e;font-size:11px;">[OWNED]</span>' : ''}</strong>
+                <span>${p.district} • Garage Capacity: ${p.garageSlots} vehicles${owned ? '' : ' • $' + p.price.toLocaleString()}</span>
+              </div>
+              <div style="display:flex; gap:6px;">
+                <button class="btn btn-sm" data-prop-gps="${p.id}">Set GPS</button>
+                ${owned ? '' : `<button class="btn btn-primary btn-sm" data-prop-buy="${p.id}">Buy $${p.price.toLocaleString()}</button>`}
+              </div>
+            </div>`;
+          }).join('')}</div>`;
+          vantaBody.querySelectorAll('[data-prop-gps]').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const p = PROPERTIES_CATALOG.find(x => x.id === btn.getAttribute('data-prop-gps'));
+              if (p) { setGPSTarget(p.name, p.x, p.z); closeVantaPhone(); }
+            });
+          });
+          vantaBody.querySelectorAll('[data-prop-buy]').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const p = PROPERTIES_CATALOG.find(x => x.id === btn.getAttribute('data-prop-buy'));
+              if (!p) return;
+              if (gameState.cash < p.price) {
+                showToast(`Need $${(p.price - gameState.cash).toLocaleString()} more cash.`);
+                return;
+              }
+              gameState.cash -= p.price;
+              gameState.ownedProperties.push(p.id);
+              addXP(250);
+              saveCurrentSlot('Property Purchased');
+              renderVantaApp('properties');
+            });
+          });
+          return;
+        }
+
+        if (appId === 'inventory') {
+          vantaAppTitle.textContent = 'Inventory (No Weight Limit)';
+          const cats = ['Weapons', 'Clothing', 'Collectibles', 'Valuables', 'Equipment', 'Miscellaneous'];
+          vantaBody.innerHTML = cats.map(cat => {
+            const items = (gameState.inventory || []).filter(i => i.category === cat);
+            return `<div style="margin-bottom:12px;">
+              <div style="font-size:11px; font-weight:800; color:#60a5fa; text-transform:uppercase; margin-bottom:6px;">${cat} (${items.length})</div>
+              <div class="inv-grid">${items.length ? items.map(i => `
+                <div class="inv-item"><strong>${escapeHtml(i.name)}</strong><span>${i.value > 0 ? 'Est. $' + i.value : 'Standard'}</span></div>`).join('')
+                : '<div style="font-size:12px; color:var(--muted);">Empty</div>'}</div>
+            </div>`;
+          }).join('');
+          return;
+        }
+
+        if (appId === 'missions') {
+          vantaAppTitle.textContent = 'Missions & City Recon';
+          vantaBody.innerHTML = `<div class="vanta-list">${MISSIONS_LIST.map(m => {
+            const done = gameState.completedMissions.includes(m.id);
+            const active = gameState.activeMissionId === m.id;
+            return `<div class="vanta-row">
+              <div>
+                <strong>${escapeHtml(m.title)} ${done ? '<span style="color:#22c55e;">✓ COMPLETED</span>' : (active ? '<span style="color:#60a5fa;">● ACTIVE</span>' : '')}</strong>
+                <span>${escapeHtml(m.desc)} • Reward: <b style="color:#22c55e;">$${m.rewardCash}</b> + ${m.rewardXp} XP</span>
+              </div>
+              ${done ? '' : `<button class="btn btn-primary btn-sm" data-start-mission="${m.id}">${active ? 'Focus GPS' : 'Accept'}</button>`}
+            </div>`;
+          }).join('')}</div>`;
+          vantaBody.querySelectorAll('[data-start-mission]').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const m = MISSIONS_LIST.find(x => x.id === btn.getAttribute('data-start-mission'));
+              if (!m) return;
+              gameState.activeMissionId = m.id;
+              setGPSTarget('Mission: ' + m.title, m.targetX, m.targetZ);
+              closeVantaPhone();
+            });
+          });
+          return;
+        }
+
+        if (appId === 'stats') {
+          vantaAppTitle.textContent = 'Empire Statistics';
+          const collectedCaches = CITY_CACHES.filter(c => gameState.safehouse.collectedIds.includes(c.id)).length;
+          vantaBody.innerHTML = `<div class="stat-cards">
+            <div class="stat-card"><div class="lbl">Character</div><div class="val" style="font-size:16px;">${escapeHtml(gameState.characterName)}</div></div>
+            <div class="stat-card"><div class="lbl">Level (Max 100)</div><div class="val">${gameState.level}</div></div>
+            <div class="stat-card"><div class="lbl">Cash On Hand</div><div class="val" style="color:#22c55e;">$${gameState.cash.toLocaleString()}</div></div>
+            <div class="stat-card"><div class="lbl">Districts Visited</div><div class="val">${gameState.visitedDistricts.length} / 5</div></div>
+            <div class="stat-card"><div class="lbl">City Caches</div><div class="val">${collectedCaches} / ${CITY_CACHES.length}</div></div>
+            <div class="stat-card"><div class="lbl">Missions Done</div><div class="val">${gameState.completedMissions.length} / ${MISSIONS_LIST.length}</div></div>
+            <div class="stat-card"><div class="lbl">Distance Walked</div><div class="val">${Math.round(gameState.stats.distanceMeters)} m</div></div>
+            <div class="stat-card"><div class="lbl">Photos Taken</div><div class="val">${gameState.stats.photosTaken}</div></div>
+          </div>`;
+          return;
+        }
+
+        if (appId === 'camera') {
+          vantaAppTitle.textContent = 'VANTA Camera';
+          vantaBody.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+              <span style="font-size:13px; color:var(--muted);">Snap a live photo of your current San Verano view.</span>
+              <button class="btn btn-primary btn-sm" id="btn-take-photo">📸 Take Snapshot</button>
+            </div>
+            <div class="photo-grid" id="vanta-photo-grid">
+              ${sessionPhotos.length ? sessionPhotos.map(p => `
+                <div class="photo-thumb"><img src="${p.url}" alt="San Verano Photo" /><div>${escapeHtml(p.district)} • ${p.time}</div></div>`).join('')
+                : '<div style="font-size:12px; color:var(--muted); margin-top:10px;">No photos taken this session yet.</div>'}
+            </div>`;
+          document.getElementById('btn-take-photo').addEventListener('click', () => {
+            renderer.render(scene, camera);
+            try {
+              const url = renderer.domElement.toDataURL('image/jpeg', 0.72);
+              sessionPhotos.unshift({ url, district: gameState.district, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
+              gameState.stats.photosTaken += 1;
+              audio.playShutter();
+              showToast('Photo saved to VANTA Camera!');
+              renderVantaApp('camera');
+            } catch (e) {
+              showToast('Snapshot unavailable in this browser.');
+            }
+          });
+          return;
+        }
+
+        if (appId === 'settings') {
+          vantaAppTitle.textContent = 'VANTA Settings';
+          const wps = [
+            { id: 'wp-cobalt', label: 'Cobalt Grid' },
+            { id: 'wp-carbon', label: 'Midnight Carbon' },
+            { id: 'wp-harbor', label: 'Harbor Steel' },
+            { id: 'wp-sunset', label: 'San Verano Dusk' }
+          ];
+          vantaBody.innerHTML = `
+            <div style="margin-bottom:14px;">
+              <div style="font-size:12px; font-weight:700; color:#60a5fa; margin-bottom:8px;">PHONE WALLPAPER</div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                ${wps.map(w => `<button class="btn btn-sm ${gameState.settings.wallpaper === w.id ? 'btn-primary' : ''}" data-wp="${w.id}">${w.label}</button>`).join('')}
+              </div>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button class="btn btn-primary btn-sm" id="btn-vanta-save">Save Now (Slot ${gameState.slotId})</button>
+              <button class="btn btn-sm" id="btn-vanta-mute">${audio.muted ? 'Unmute Audio' : 'Mute Audio'}</button>
+              <button class="btn btn-sm" id="btn-vanta-home-tp">Fast Return to Apt 4B</button>
+            </div>`;
+          vantaBody.querySelectorAll('[data-wp]').forEach(btn => {
+            btn.addEventListener('click', () => {
+              gameState.settings.wallpaper = btn.getAttribute('data-wp');
+              applySafehouseVisuals();
+              audio.playClick();
+              renderVantaApp('settings');
+            });
+          });
+          document.getElementById('btn-vanta-save').addEventListener('click', () => saveCurrentSlot('Manual Save Complete'));
+          document.getElementById('btn-vanta-mute').addEventListener('click', () => { toggleMute(); renderVantaApp('settings'); });
+          document.getElementById('btn-vanta-home-tp').addEventListener('click', () => {
+            playerRig.position.set(APT_ORIGIN.x, 0, APT_ORIGIN.z + 1.4);
+            playerRig.rotation.y = 0;
+            closeVantaPhone();
+            showToast('Returned to Eastside Apt 4B.');
+          });
+        }
+      }
+
+      function drawSVMap() {
+        const c = document.getElementById('sv-map-canvas');
+        if (!c) return;
+        const g = c.getContext('2d');
+        const W = c.width, H = c.height;
+        const toX = wx => ((wx + 120) / 240) * W;
+        const toY = wz => ((wz + 120) / 240) * H;
+
+        // Ocean bg
+        g.fillStyle = '#0a2540';
+        g.fillRect(0, 0, W, H);
+
+        // Districts
+        DISTRICTS.forEach(d => {
+          const x = toX(d.xMin), y = toY(d.zMin);
+          const w = toX(d.xMax) - x, h = toY(d.zMax) - y;
+          g.fillStyle = d.color;
+          g.globalAlpha = 0.55;
+          g.fillRect(x, y, w, h);
+          g.globalAlpha = 1;
+          g.strokeStyle = 'rgba(96,165,250,0.45)';
+          g.lineWidth = 1.5;
+          g.strokeRect(x, y, w, h);
+          g.fillStyle = '#dbeafe';
+          g.font = 'bold 11px sans-serif';
+          g.fillText(d.id.toUpperCase(), x + 6, y + 15);
+        });
+
+        // Roads
+        g.fillStyle = '#1e293b';
+        roadSpecs.forEach(r => {
+          g.fillRect(toX(r.x - r.w / 2), toY(r.z - r.d / 2), (r.w / 240) * W, (r.d / 240) * H);
+        });
+
+        // Helper: Draw crisp GTA-style outlined radar blips
+        function drawGTABlip(x, y, type) {
+          g.save();
+          g.translate(x, y);
+          g.lineJoin = 'round';
+          g.strokeStyle = '#020617';
+          g.lineWidth = 2.4;
+
+          if (type === 'home') {
+            // Classic GTA Green Safehouse
+            g.fillStyle = '#22c55e';
+            g.beginPath();
+            g.moveTo(0, -8); g.lineTo(8, -1); g.lineTo(6, -1); g.lineTo(6, 7);
+            g.lineTo(2, 7); g.lineTo(2, 2); g.lineTo(-2, 2); g.lineTo(-2, 7);
+            g.lineTo(-6, 7); g.lineTo(-6, -1); g.lineTo(-8, -1); g.closePath();
+            g.stroke(); g.fill();
+          } else if (type === 'garage') {
+            // Purple Garage Bay
+            g.fillStyle = '#a855f7';
+            g.beginPath();
+            g.moveTo(0, -8); g.lineTo(8, -2); g.lineTo(8, 7); g.lineTo(-8, 7); g.lineTo(-8, -2); g.closePath();
+            g.stroke(); g.fill();
+            g.fillStyle = '#020617';
+            g.fillRect(-4.5, 0, 9, 6);
+            g.fillStyle = '#e9d5ff';
+            g.fillRect(-3.5, 1.5, 7, 1.5);
+            g.fillRect(-3.5, 4, 7, 1.5);
+          } else if (type === 'pawn') {
+            // Gold $ Pawn Shop Badge
+            g.fillStyle = '#f59e0b';
+            g.beginPath(); g.arc(0, 0, 7.5, 0, Math.PI * 2); g.stroke(); g.fill();
+            g.fillStyle = '#020617';
+            g.font = '900 11px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+            g.fillText('$', 0, 0.5);
+          } else if (type === 'mod') {
+            // Cyan Auto / Mod Shop Wrench Badge
+            g.fillStyle = '#38bdf8';
+            g.beginPath(); g.arc(0, 0, 7.5, 0, Math.PI * 2); g.stroke(); g.fill();
+            g.fillStyle = '#020617';
+            g.font = '900 10px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+            g.fillText('M', 0, 0.5);
+          } else if (type === 'police') {
+            // Classic Blue & White Police Shield
+            g.fillStyle = '#2563eb';
+            g.beginPath();
+            g.moveTo(0, -8); g.lineTo(7, -5); g.lineTo(6, 2); g.lineTo(0, 8); g.lineTo(-6, 2); g.lineTo(-7, -5); g.closePath();
+            g.stroke(); g.fill();
+            g.strokeStyle = '#ffffff'; g.lineWidth = 1.4; g.stroke();
+          } else if (type === 'rival') {
+            // Red/Orange Rival Turf X-Badge
+            g.fillStyle = '#ef4444';
+            g.beginPath(); g.arc(0, 0, 7.5, 0, Math.PI * 2); g.stroke(); g.fill();
+            g.strokeStyle = '#ffffff'; g.lineWidth = 2;
+            g.beginPath(); g.moveTo(-3.5, -3.5); g.lineTo(3.5, 3.5); g.moveTo(3.5, -3.5); g.lineTo(-3.5, 3.5); g.stroke();
+          } else if (type === 'mission') {
+            // Gold Mission Star
+            g.fillStyle = '#facc15';
+            g.beginPath();
+            for (let i = 0; i < 10; i++) {
+              const r = i % 2 === 0 ? 8.5 : 3.8;
+              const a = (i * Math.PI) / 5 - Math.PI / 2;
+              if (i === 0) g.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+              else g.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+            }
+            g.closePath(); g.stroke(); g.fill();
+          } else if (type === 'collectible') {
+            // Briefcase / VANTA Cache
+            g.fillStyle = '#38bdf8';
+            g.fillRect(-6, -4, 12, 9);
+            g.strokeRect(-6, -4, 12, 9);
+            g.strokeStyle = '#ffffff'; g.lineWidth = 1.6;
+            g.strokeRect(-2.5, -7, 5, 3);
+          }
+          g.restore();
+        }
+
+        // Active GPS Route Line (drawn underneath blips)
+        if (gameState.gpsTarget) {
+          const gx = toX(gameState.gpsTarget.x), gy = toY(gameState.gpsTarget.z);
+          g.strokeStyle = '#020617';
+          g.lineWidth = 5;
+          g.beginPath();
+          g.moveTo(toX(playerRig.position.x), toY(playerRig.position.z));
+          g.lineTo(gx, gy);
+          g.stroke();
+          g.strokeStyle = '#a855f7';
+          g.lineWidth = 2.8;
+          g.beginPath();
+          g.moveTo(toX(playerRig.position.x), toY(playerRig.position.z));
+          g.lineTo(gx, gy);
+          g.stroke();
+        }
+
+        // POIs with GTA Blips
+        WORLD_POIS.forEach(p => {
+          if (!mapFilters[p.cat]) return;
+          const px = toX(p.x), py = toY(p.z);
+          drawGTABlip(px, py, p.blip || p.cat);
+        });
+
+        // Uncollected City Caches
+        if (mapFilters.collectible) {
+          CITY_CACHES.forEach(cc => {
+            if (gameState.safehouse.collectedIds.includes(cc.id)) return;
+            drawGTABlip(toX(cc.x), toY(cc.z), 'collectible');
+          });
+        }
+
+        // Active GPS Target Reticle
+        if (gameState.gpsTarget) {
+          const gx = toX(gameState.gpsTarget.x), gy = toY(gameState.gpsTarget.z);
+          g.strokeStyle = '#020617'; g.lineWidth = 4;
+          g.beginPath(); g.arc(gx, gy, 10, 0, Math.PI * 2); g.stroke();
+          g.strokeStyle = '#c084fc'; g.lineWidth = 2.2;
+          g.beginPath(); g.arc(gx, gy, 10, 0, Math.PI * 2); g.stroke();
+          g.fillStyle = '#c084fc';
+          g.beginPath(); g.arc(gx, gy, 3, 0, Math.PI * 2); g.fill();
+        }
+
+        // Classic GTA Directional Player Chevron Arrow
+        const plX = toX(playerRig.position.x), plY = toY(playerRig.position.z);
+        camera.getWorldDirection(tempDir);
+        const angle = Math.atan2(tempDir.x, -tempDir.z);
+        g.save();
+        g.translate(plX, plY);
+        g.rotate(angle);
+        g.fillStyle = '#ffffff';
+        g.strokeStyle = '#020617';
+        g.lineWidth = 2.6;
+        g.beginPath();
+        g.moveTo(0, -10);
+        g.lineTo(7, 8);
+        g.lineTo(0, 4);
+        g.lineTo(-7, 8);
+        g.closePath();
+        g.stroke();
+        g.fill();
+        g.restore();
+      }
+
+      // ============================================================
+      // 10. SAVE SLOTS & PAUSE MENU RENDERING
+      // ============================================================
+      function renderSlotsUI() {
+        slotsGrid.innerHTML = '';
+        for (let id = 1; id <= SLOT_COUNT; id++) {
+          const data = readSlot(id);
+          const card = document.createElement('div');
+          card.className = 'slot-card' + (selectedSlotId === id ? ' selected' : '');
+          card.addEventListener('click', () => { selectedSlotId = id; renderSlotsUI(); });
+
+          if (data) {
+            const dt = new Date(data.lastSaved);
+            const dateStr = isNaN(dt.getTime()) ? 'Saved' : dt.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            card.innerHTML = `
+              <div>
+                <div class="slot-header"><span>SAVE SLOT ${id}</span><span>LVL ${data.level}</span></div>
+                <div class="slot-name">${escapeHtml(data.characterName)}</div>
+                <div class="slot-meta">
+                  Cash: <strong style="color:#22c55e;">$${Number(data.cash).toLocaleString()}</strong><br />
+                  ${escapeHtml(data.district)}<br />
+                  Saved: ${dateStr}
+                </div>
+              </div>
+              <div class="slot-actions">
+                <span style="font-size:11px; color:#60a5fa; font-weight:600;">Ready to Load</span>
+                <button class="btn btn-danger btn-sm" data-delete-slot="${id}">Delete</button>
+              </div>`;
+          } else {
+            card.innerHTML = `
+              <div>
+                <div class="slot-header"><span>SAVE SLOT ${id}</span><span>EMPTY</span></div>
+                <div class="slot-name" style="color: var(--muted);">New Empire</div>
+                <div class="slot-meta">Start fresh in Eastside Apt 4B with $1,250 starter cash.</div>
+              </div>
+              <div class="slot-actions"><span style="font-size:11px; color: var(--muted);">Click to select</span></div>`;
+          }
+          slotsGrid.appendChild(card);
+        }
+
+        slotsGrid.querySelectorAll('[data-delete-slot]').forEach(btn => {
+          btn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            pendingDeleteSlotId = Number(btn.getAttribute('data-delete-slot'));
+            document.getElementById('confirm-message').textContent =
+              `Delete Save Slot ${pendingDeleteSlotId}? All character progress, cash, and inventory in this slot will be removed.`;
+            confirmOverlay.classList.remove('hidden');
+          });
+        });
+
+        newCharRow.style.display = readSlot(selectedSlotId) ? 'none' : 'flex';
+      }
+
+      function renderInventoryUI() {
+        const grid = document.getElementById('inv-grid');
+        grid.innerHTML = '';
+        (gameState.inventory || []).forEach(item => {
+          const el = document.createElement('div');
+          el.className = 'inv-item';
+          el.innerHTML = `<strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.category)}${item.value > 0 ? ' • Est. $' + item.value : ''}</span>`;
+          grid.appendChild(el);
+        });
+      }
+
+      function openPauseMenu() {
+        if (!isPlaying) return;
+        isPaused = true;
+        closeVantaPhone();
+        if (document.pointerLockElement) document.exitPointerLock();
+        document.getElementById('pause-char-name').textContent = gameState.characterName;
+        document.getElementById('pause-slot-info').textContent =
+          `Slot ${gameState.slotId} • Level ${gameState.level} • $${gameState.cash.toLocaleString()} • ${gameState.district}`;
+        renderInventoryUI();
+        pauseOverlay.classList.remove('hidden');
+      }
+
+      function closePauseMenu() {
+        isPaused = false;
+        pauseOverlay.classList.add('hidden');
+      }
+
+      function collectLoot(prop) {
+        if (prop.collected) return;
+        prop.collected = true;
+        prop.isHeld = false;
+        prop.mesh.visible = false;
+        if (!gameState.safehouse.collectedIds.includes(prop.id)) {
+          gameState.safehouse.collectedIds.push(prop.id);
+        }
+        if (prop.cashAmount > 0) {
+          gameState.cash += prop.cashAmount;
+          addXP(40);
+          showToast(`Collected ${prop.name} (+$${prop.cashAmount})`);
+        } else {
+          gameState.inventory.push({ id: prop.id, name: prop.name, category: prop.category, value: prop.value });
+          addXP(50);
+          showToast(`Collected ${prop.name} (Est. $${prop.value})`);
+        }
+        audio.playLoot();
+        updateHUD();
+        saveCurrentSlot('Autosaved');
+      }
+
+      // ============================================================
+      // 11. WEBXR SESSION MANAGEMENT
+      // ============================================================
+      let xrSupported = false;
+      let currentXRSession = null;
+
+      async function checkWebXRSupport() {
+        if (navigator.xr && navigator.xr.isSessionSupported) {
+          try { xrSupported = await navigator.xr.isSessionSupported('immersive-vr'); } catch (e) { xrSupported = false; }
+        }
+        if (xrSupported) {
+          xrStatusBadge.textContent = 'WebXR Ready (Headset Detected)';
+          xrStatusBadge.classList.add('ready');
+        } else {
+          xrStatusBadge.textContent = 'Desktop Mode (No VR Headset Detected)';
+        }
+      }
+
+      async function startVRSession() {
+        audio.init();
+        if (!isPlaying) {
+          loadSlotIntoWorld(selectedSlotId);
+          isPlaying = true;
+          isPaused = false;
+          titleOverlay.classList.add('hidden');
+          hudEl.style.display = 'block';
+        }
+        if (!xrSupported || !navigator.xr) {
+          showToast('No WebXR headset detected — running in Desktop 3D mode.');
+          return;
+        }
+        if (currentXRSession) {
+          await currentXRSession.end();
+          return;
+        }
+        try {
+          const session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] });
+          currentXRSession = session;
+          session.addEventListener('end', () => {
+            currentXRSession = null;
+            desktopHand.visible = true;
+            document.getElementById('btn-hud-vr').textContent = 'Enter VR';
+          });
+          renderer.xr.setReferenceSpaceType('local-floor');
+          await renderer.xr.setSession(session);
+          desktopHand.visible = false;
+          closePauseMenu();
+          closeVantaPhone();
+          document.getElementById('btn-hud-vr').textContent = 'Exit VR';
+          showToast('Entered WebXR VR Mode');
+        } catch (err) {
+          showToast('WebXR requires HTTPS on a VR headset browser.');
+        }
+      }
+
+      // ============================================================
+      // 12. INTERACTION, LOCOMOTION & SWIMMING
+      // ============================================================
+      const raycaster = new THREE.Raycaster();
+      const tempMat4 = new THREE.Matrix4();
+      const tempPos = new THREE.Vector3();
+      const tempDir = new THREE.Vector3();
+
+      function getDesktopTarget() {
+        raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+        raycaster.far = 3.0;
+        const targets = interactables.filter(it => it.mesh.visible).map(it => it.mesh);
+        const hits = raycaster.intersectObjects(targets, false);
+        if (hits.length === 0) return null;
+        return interactables.find(it => it.mesh === hits[0].object) || null;
+      }
+
+      function handleDesktopInteract() {
+        if (!isPlaying || isPaused || isPhoneOpen) return;
+        audio.init();
+        const target = getDesktopTarget();
+        if (!target) return;
+        if (target.kind === 'action') {
+          target.action();
+        } else if (target.kind === 'prop') {
+          if (target.prop.id === 'prop_vanta_phone') {
+            openVantaPhone('home');
+          } else if (target.prop.cashAmount > 0 || target.prop.stashable) {
+            collectLoot(target.prop);
+          } else {
+            toggleDesktopGrab(target.prop);
+          }
+        }
+      }
+
+      function toggleDesktopGrab(explicitProp) {
+        if (!isPlaying || isPaused || isPhoneOpen) return;
+        audio.init();
+        if (desktopHeldProp) {
+          const worldPos = new THREE.Vector3();
+          desktopHeldProp.mesh.getWorldPosition(worldPos);
+          scene.attach(desktopHeldProp.mesh);
+          desktopHeldProp.mesh.position.copy(worldPos);
+          desktopHeldProp.vel.set(0, 0.2, 0);
+          desktopHeldProp.isHeld = false;
+          desktopHeldProp = null;
+          heldIndicator.style.display = 'none';
+          audio.playDrop();
+          return;
+        }
+        let prop = explicitProp;
+        if (!prop) {
+          const target = getDesktopTarget();
+          if (target && target.kind === 'prop') prop = target.prop;
+        }
+        if (!prop || prop.collected) return;
+        if (prop.inDrawer) { scene.attach(prop.mesh); prop.inDrawer = false; }
+        camera.attach(prop.mesh);
+        prop.mesh.position.set(0.24, -0.16, -0.48);
+        prop.isHeld = true;
+        desktopHeldProp = prop;
+        heldNameEl.textContent = 'Holding: ' + prop.name;
+        heldIndicator.style.display = 'flex';
+        audio.playGrab();
+      }
+
+      function tossDesktopHeld() {
+        if (!desktopHeldProp) return;
+        const prop = desktopHeldProp;
+        const worldPos = new THREE.Vector3();
+        prop.mesh.getWorldPosition(worldPos);
+        scene.attach(prop.mesh);
+        prop.mesh.position.copy(worldPos);
+        camera.getWorldDirection(tempDir);
+        prop.vel.copy(tempDir).multiplyScalar(4.8);
+        prop.vel.y += 1.4;
+        prop.isHeld = false;
+        desktopHeldProp = null;
+        heldIndicator.style.display = 'none';
+        audio.playGrab();
+      }
+
+      function handleVRInteract(ctrlState) {
+        if (!isPlaying) return;
+        audio.init();
+        // If holding the hip VANTA phone in this hand, Trigger opens/closes VANTA OS
+        if (hipPhoneState.heldByVR === ctrlState) {
+          if (isPhoneOpen) closeVantaPhone();
+          else openVantaPhone('home');
+          return;
+        }
+        tempMat4.identity().extractRotation(ctrlState.controller.matrixWorld);
+        raycaster.ray.origin.setFromMatrixPosition(ctrlState.controller.matrixWorld);
+        raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMat4);
+        raycaster.far = 2.8;
+        const targets = interactables.filter(it => it.mesh.visible).map(it => it.mesh);
+        const hits = raycaster.intersectObjects(targets, false);
+        if (hits.length > 0) {
+          const found = interactables.find(it => it.mesh === hits[0].object);
+          if (found) {
+            if (found.kind === 'action') found.action();
+            else if (found.kind === 'prop' && (found.prop.cashAmount > 0 || found.prop.stashable)) collectLoot(found.prop);
+          }
+        }
+      }
+
+      function handleVRGrabStart(ctrlState) {
+        if (!isPlaying || ctrlState.grabbed || hipPhoneState.heldByVR === ctrlState) return;
+        audio.init();
+        ctrlState.controller.getWorldPosition(tempPos);
+
+        // If seated in a vehicle with Physical Steering enabled, Grip grabs the steering wheel!
+        if (activeVehicle && gameState.settings.steeringMode === 'physical') {
+          const wheelWorld = new THREE.Vector3();
+          activeVehicle.wheelPivot.getWorldPosition(wheelWorld);
+          if (tempPos.distanceTo(wheelWorld) < 0.45) {
+            vrWheelGrabCtrl = ctrlState;
+            const local = activeVehicle.wheelPivot.worldToLocal(tempPos.clone());
+            vrWheelGrabStartAngle = Math.atan2(local.y, local.x);
+            vrWheelSteerBase = activeVehicle.steerAngle;
+            audio.playGrab();
+            return;
+          }
+        }
+
+        // Check Hip Holster first — reach to your right hip and squeeze Grip to draw VANTA Phone!
+        if (!hipPhoneState.heldByVR) {
+          const hipWorld = new THREE.Vector3();
+          hipHolsterGroup.getWorldPosition(hipWorld);
+          if (tempPos.distanceTo(hipWorld) < 0.38) {
+            refreshHipPhoneScreen();
+            ctrlState.controller.attach(hipPhoneMesh);
+            hipPhoneMesh.position.set(0, 0.04, -0.06);
+            hipPhoneMesh.rotation.set(-0.65, 0, 0);
+            hipPhoneState.heldByVR = ctrlState;
+            holsterGlowMat.emissiveIntensity = 0.15;
+            audio.playPhone();
+            showToast('VANTA Phone drawn — Press Trigger to open apps, release Grip to holster.');
+            return;
+          }
+        }
+        let closest = null, minDist = 0.36;
+        grabbables.forEach(p => {
+          if (p.collected || p.isHeld) return;
+          const pPos = new THREE.Vector3();
+          p.mesh.getWorldPosition(pPos);
+          const d = pPos.distanceTo(tempPos);
+          if (d < minDist) { minDist = d; closest = p; }
+        });
+        if (closest) {
+          if (closest.inDrawer) { scene.attach(closest.mesh); closest.inDrawer = false; }
+          ctrlState.controller.attach(closest.mesh);
+          closest.isHeld = true;
+          ctrlState.grabbed = closest;
+          audio.playGrab();
+        }
+      }
+
+      function handleVRGrabEnd(ctrlState) {
+        if (vrWheelGrabCtrl === ctrlState) {
+          vrWheelGrabCtrl = null;
+          return;
+        }
+        if (hipPhoneState.heldByVR === ctrlState) {
+          snapHipPhoneToHolster();
+          if (isPhoneOpen) closeVantaPhone();
+          return;
+        }
+        if (!ctrlState.grabbed) return;
+        const prop = ctrlState.grabbed;
+        scene.attach(prop.mesh);
+        prop.isHeld = false;
+        prop.vel.copy(ctrlState.vel).multiplyScalar(1.3);
+        ctrlState.grabbed = null;
+        audio.playDrop();
+      }
+
+      function resolvePlayerCollision(nextX, nextZ) {
+        const radius = 0.36;
+        let x = Math.max(-118, Math.min(118, nextX));
+        let z = Math.max(-118, Math.min(126, nextZ));
+        for (let i = 0; i < colliders.length; i++) {
+          const c = colliders[i];
+          if (c.activeFn && !c.activeFn()) continue;
+          const minX = c.minX - radius, maxX = c.maxX + radius;
+          const minZ = c.minZ - radius, maxZ = c.maxZ + radius;
+          if (x > minX && x < maxX && z > minZ && z < maxZ) {
+            const dx1 = Math.abs(x - minX), dx2 = Math.abs(maxX - x);
+            const dz1 = Math.abs(z - minZ), dz2 = Math.abs(maxZ - z);
+            const m = Math.min(dx1, dx2, dz1, dz2);
+            if (m === dx1) x = minX;
+            else if (m === dx2) x = maxX;
+            else if (m === dz1) z = minZ;
+            else z = maxZ;
+          }
+        }
+        return { x, z };
+      }
+
+      const modshopOverlay = document.getElementById('modshop-overlay');
+      let isModShopOpen = false;
+
+      function openModShop() {
+        if (!activeVehicle) return;
+        isModShopOpen = true;
+        if (document.pointerLockElement) document.exitPointerLock();
+        modshopOverlay.classList.remove('hidden');
+        renderModShopUI();
+      }
+
+      function closeModShop() {
+        isModShopOpen = false;
+        modshopOverlay.classList.add('hidden');
+        syncOwnedVehiclesToSave();
+        saveCurrentSlot('Vehicle Mods Saved');
+      }
+
+      function renderModShopUI() {
+        if (!activeVehicle) return;
+        const v = activeVehicle;
+        document.getElementById('mod-car-title').textContent = v.name;
+        const paints = ['#2563eb','#dc2626','#0f172a','#f8fafc','#eab308','#16a34a','#64748b'];
+        const rims = ['#cbd5e1','#0f172a','#eab308','#38bdf8'];
+        const interiors = ['#1e293b','#78350f','#7f1d1d','#1d4ed8'];
+        const repairCost = v.health < 100 ? Math.max(50, Math.round((100 - v.health) * 3)) : 0;
+
+        document.getElementById('modshop-body').innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+            <span style="font-size:13px;">Cash: <strong style="color:#22c55e;">$${gameState.cash.toLocaleString()}</strong> • Body: <strong>${Math.round(v.health)}%</strong></span>
+            ${repairCost > 0 ? `<button class="btn btn-primary btn-sm" id="btn-mod-repair">Repair Vehicle ($${repairCost})</button>` : '<span style="font-size:12px; color:#22c55e;">Body 100% Mint</span>'}
+          </div>
+          <div class="modal-section" style="margin-top:8px; padding-top:10px;">
+            <h3>Paint Color ($150)</h3>
+            <div class="swatch-row">
+              ${paints.map(c => `<button class="swatch-btn ${v.mods.paint === c ? 'active' : ''}" style="background:${c}" data-mod-paint="${c}"></button>`).join('')}
+            </div>
+          </div>
+          <div class="modal-section" style="margin-top:10px; padding-top:10px;">
+            <h3>Rims ($200) &amp; Interior ($150)</h3>
+            <div style="display:flex; gap:20px; flex-wrap:wrap;">
+              <div><div style="font-size:11px; color:var(--muted);">Rims</div><div class="swatch-row">${rims.map(c => `<button class="swatch-btn ${v.mods.rims === c ? 'active' : ''}" style="background:${c}" data-mod-rim="${c}"></button>`).join('')}</div></div>
+              <div><div style="font-size:11px; color:var(--muted);">Interior</div><div class="swatch-row">${interiors.map(c => `<button class="swatch-btn ${v.mods.interior === c ? 'active' : ''}" style="background:${c}" data-mod-int="${c}"></button>`).join('')}</div></div>
+            </div>
+          </div>
+          <div class="modal-section" style="margin-top:10px; padding-top:10px;">
+            <h3>Spoiler, Window Tint, Suspension &amp; Engine</h3>
+            <div class="mod-grid">
+              <button class="btn btn-sm ${v.mods.spoiler === 'none' ? 'btn-primary' : ''}" data-mod-spoiler="none">No Spoiler</button>
+              <button class="btn btn-sm ${v.mods.spoiler === 'lip' ? 'btn-primary' : ''}" data-mod-spoiler="lip">Street Lip ($250)</button>
+              <button class="btn btn-sm ${v.mods.spoiler === 'wing' ? 'btn-primary' : ''}" data-mod-spoiler="wing">Carbon GT Wing ($450)</button>
+              <button class="btn btn-sm ${v.mods.tint <= 0.3 ? 'btn-primary' : ''}" data-mod-tint="0.28">Light Tint</button>
+              <button class="btn btn-sm ${v.mods.tint > 0.3 && v.mods.tint < 0.7 ? 'btn-primary' : ''}" data-mod-tint="0.55">Smoke Tint ($120)</button>
+              <button class="btn btn-sm ${v.mods.tint >= 0.7 ? 'btn-primary' : ''}" data-mod-tint="0.82">Limo Tint ($200)</button>
+              <button class="btn btn-sm ${v.mods.suspension === 'stock' ? 'btn-primary' : ''}" data-mod-susp="stock">Stock Susp.</button>
+              <button class="btn btn-sm ${v.mods.suspension === 'lowered' ? 'btn-primary' : ''}" data-mod-susp="lowered">Lowered ($300)</button>
+              <button class="btn btn-sm ${v.mods.suspension === 'lifted' ? 'btn-primary' : ''}" data-mod-susp="lifted">Lifted ($300)</button>
+              <button class="btn btn-sm ${v.mods.engineLevel === 1 ? 'btn-primary' : ''}" data-mod-eng="1">Street Tune ($600)</button>
+              <button class="btn btn-sm ${v.mods.engineLevel === 2 ? 'btn-primary' : ''}" data-mod-eng="2">Twin-Turbo ($1,200)</button>
+            </div>
+          </div>`;
+
+        function chargeAndApply(cost, fn) {
+          if (cost > 0 && gameState.cash < cost) { showToast(`Need $${cost} for this mod.`); return; }
+          gameState.cash -= cost;
+          fn();
+          v.applyModsAndDamage();
+          updateHUD();
+          updateDriveHUD();
+          audio.playLoot();
+          renderModShopUI();
+        }
+
+        const repBtn = document.getElementById('btn-mod-repair');
+        if (repBtn) repBtn.addEventListener('click', () => chargeAndApply(repairCost, () => { v.health = 100; showToast('Vehicle repaired!'); }));
+        document.querySelectorAll('[data-mod-paint]').forEach(b => b.addEventListener('click', () => chargeAndApply(150, () => { v.mods.paint = b.getAttribute('data-mod-paint'); })));
+        document.querySelectorAll('[data-mod-rim]').forEach(b => b.addEventListener('click', () => chargeAndApply(200, () => { v.mods.rims = b.getAttribute('data-mod-rim'); })));
+        document.querySelectorAll('[data-mod-int]').forEach(b => b.addEventListener('click', () => chargeAndApply(150, () => { v.mods.interior = b.getAttribute('data-mod-int'); })));
+        document.querySelectorAll('[data-mod-spoiler]').forEach(b => b.addEventListener('click', () => {
+          const val = b.getAttribute('data-mod-spoiler');
+          chargeAndApply(val === 'wing' ? 450 : (val === 'lip' ? 250 : 0), () => { v.mods.spoiler = val; });
+        }));
+        document.querySelectorAll('[data-mod-tint]').forEach(b => b.addEventListener('click', () => {
+          const val = parseFloat(b.getAttribute('data-mod-tint'));
+          chargeAndApply(val > 0.7 ? 200 : (val > 0.3 ? 120 : 0), () => { v.mods.tint = val; });
+        }));
+        document.querySelectorAll('[data-mod-susp]').forEach(b => b.addEventListener('click', () => {
+          const val = b.getAttribute('data-mod-susp');
+          chargeAndApply(val === 'stock' ? 0 : 300, () => { v.mods.suspension = val; });
+        }));
+        document.querySelectorAll('[data-mod-eng]').forEach(b => b.addEventListener('click', () => {
+          const lv = Number(b.getAttribute('data-mod-eng'));
+          chargeAndApply(lv === 2 ? 1200 : 600, () => { v.mods.engineLevel = lv; });
+        }));
+      }
+
+      document.getElementById('btn-mod-close').addEventListener('click', closeModShop);
+      document.getElementById('btn-open-modshop').addEventListener('click', openModShop);
+      document.getElementById('btn-exit-vehicle').addEventListener('click', exitVehicle);
+      document.getElementById('btn-toggle-steer').addEventListener('click', () => {
+        gameState.settings.steeringMode = gameState.settings.steeringMode === 'physical' ? 'joystick' : 'physical';
+        updateDriveHUD();
+        audio.playClick();
+      });
+
+      function updateVehicleDriving(dt) {
+        const v = activeVehicle;
+        let throttle = 0, brake = 0, steerInput = 0;
+
+        if (keys['KeyW'] || keys['ArrowUp']) throttle += 1;
+        if (keys['KeyS'] || keys['ArrowDown']) brake += 1;
+        if (keys['KeyA'] || keys['ArrowLeft']) steerInput += 1;
+        if (keys['KeyD'] || keys['ArrowRight']) steerInput -= 1;
+        throttle += Math.max(0, -touchMove.y);
+        brake += Math.max(0, touchMove.y);
+        steerInput -= touchMove.x;
+
+        if (renderer.xr.isPresenting) {
+          vrControllers.forEach(c => {
+            const gp = c.gamepad;
+            if (!gp) return;
+            const axX = gp.axes.length >= 4 ? gp.axes[2] : (gp.axes[0] || 0);
+            const trig = gp.buttons[0] ? gp.buttons[0].value : 0;
+            const grip = gp.buttons[1] ? gp.buttons[1].value : 0;
+            if (c.handedness === 'right') {
+              throttle = Math.max(throttle, trig);
+            } else {
+              brake = Math.max(brake, trig);
+              if (gameState.settings.steeringMode === 'joystick' && Math.abs(axX) > 0.12) steerInput -= axX;
+            }
+            c.hand.userData.setPose(trig, grip, 0.2);
+          });
+        }
+
+        // Physical Steering Wheel rotation in VR
+        if (gameState.settings.steeringMode === 'physical' && vrWheelGrabCtrl) {
+          vrWheelGrabCtrl.controller.getWorldPosition(tempPos);
+          const local = v.wheelPivot.worldToLocal(tempPos.clone());
+          const curAngle = Math.atan2(local.y, local.x);
+          let delta = curAngle - vrWheelGrabStartAngle;
+          if (delta > Math.PI) delta -= Math.PI * 2;
+          if (delta < -Math.PI) delta += Math.PI * 2;
+          v.steerAngle = Math.max(-0.55, Math.min(0.55, vrWheelSteerBase + delta * 0.45));
+        } else {
+          const targetSteer = steerInput * 0.52;
+          v.steerAngle += (targetSteer - v.steerAngle) * Math.min(1, dt * 8);
+        }
+
+        const engMult = 1 + (v.mods.engineLevel || 0) * 0.2;
+        const maxSpeed = v.spec.topSpeed * engMult;
+        const accel = v.spec.accel * engMult;
+
+        if (throttle > 0.05) v.speed += throttle * accel * dt;
+        if (brake > 0.05) v.speed -= brake * (v.speed > 0 ? accel * 1.5 : accel * 0.7) * dt;
+        // Rolling drag
+        v.speed *= Math.pow(0.985, dt * 60);
+        v.speed = Math.max(-maxSpeed * 0.35, Math.min(maxSpeed, v.speed));
+
+        if (Math.abs(v.speed) > 0.15) {
+          const turnDir = v.speed >= 0 ? 1 : -1;
+          v.root.rotation.y += v.steerAngle * Math.min(1, Math.abs(v.speed) / 6) * 2.1 * turnDir * dt;
+        }
+
+        const fwdX = -Math.sin(v.root.rotation.y);
+        const fwdZ = -Math.cos(v.root.rotation.y);
+        const nextX = v.root.position.x + fwdX * v.speed * dt;
+        const nextZ = v.root.position.z + fwdZ * v.speed * dt;
+
+        // Building & Water boundary collision with visual damage!
+        let collided = false;
+        let clampedX = Math.max(-114, Math.min(114, nextX));
+        let clampedZ = Math.max(-114, Math.min(95, nextZ));
+        if (clampedX !== nextX || clampedZ !== nextZ) collided = true;
+
+        const r = 1.35;
+        for (let i = 0; i < colliders.length; i++) {
+          const c = colliders[i];
+          if (c.activeFn && !c.activeFn()) continue;
+          if (clampedX > c.minX - r && clampedX < c.maxX + r && clampedZ > c.minZ - r && clampedZ < c.maxZ + r) {
+            collided = true;
+            break;
+          }
+        }
+
+        if (collided) {
+          const impact = Math.abs(v.speed);
+          if (impact > 4.5) {
+            v.health = Math.max(0, v.health - impact * 1.6);
+            v.applyModsAndDamage();
+            audio.playCrash();
+            if (v.health <= 0) {
+              v.destroyed = true;
+              v.applyModsAndDamage();
+              const wasOwned = v.owned;
+              const name = v.name;
+              exitVehicle();
+              showToast(wasOwned
+                ? `${name} wrecked! Recover it in VANTA Garage (mods kept).`
+                : `Stolen ${name} destroyed and permanently lost!`);
+              return;
+            }
+          }
+          v.speed *= -0.25;
+        } else {
+          v.root.position.x = clampedX;
+          v.root.position.z = clampedZ;
+          gameState.stats.distanceMeters += Math.abs(v.speed) * dt;
+        }
+
+        // Animate steering wheel & 4 wheels
+        v.wheelPivot.rotation.z = v.steerAngle * 3.2;
+        v.wheelNodes.forEach(w => {
+          if (w.front) w.pivot.rotation.y = v.steerAngle;
+          w.pivot.children[0].rotation.x -= v.speed * dt * 2.2;
+        });
+        if (v.damageMeshes.smokePuff.visible) {
+          v.damageMeshes.smokePuff.position.y = 1.25 + Math.sin(performance.now() * 0.008) * 0.14;
+        }
+
+        // Keep Player Rig locked cleanly to Driver's Seat (First-Person Only!)
+        const seatLocal = new THREE.Vector3(-0.46, 0.25, 0.28).applyAxisAngle(new THREE.Vector3(0, 1, 0), v.root.rotation.y);
+        playerRig.position.set(v.root.position.x + seatLocal.x, v.root.position.y + seatLocal.y, v.root.position.z + seatLocal.z);
+        playerRig.rotation.y = v.root.rotation.y;
+
+        audio.updateEngine(true, Math.abs(v.speed));
+        updateDriveHUD();
+
+        const nextDistrict = getDistrictAt(v.root.position.x, v.root.position.z);
+        if (gameState.district !== nextDistrict) {
+          gameState.district = nextDistrict;
+          document.getElementById('hud-location').textContent = nextDistrict;
+          if (DISTRICTS.some(d => d.id === nextDistrict) && !gameState.visitedDistricts.includes(nextDistrict)) {
+            gameState.visitedDistricts.push(nextDistrict);
+            addXP(60);
+            showToast(`Discovered ${nextDistrict}! (+60 XP)`);
+          }
+        }
+      }
+
+      function updateLocomotion(dt) {
+        if (!isPlaying || isPaused || isPhoneOpen || isModShopOpen) {
+          audio.updateEngine(false, 0);
+          return;
+        }
+        if (activeVehicle) {
+          updateVehicleDriving(dt);
+          return;
+        }
+        const baseSpeed = gameState.settings.moveSpeed || 3.2;
+        const turnSpeed = gameState.settings.turnSpeed || 1.8;
+
+        let moveX = 0, moveZ = 0, turnInput = 0;
+        let isSprinting = false, wantJump = false;
+
+        if (keys['KeyW'] || keys['ArrowUp']) moveZ -= 1;
+        if (keys['KeyS'] || keys['ArrowDown']) moveZ += 1;
+        if (keys['KeyA'] || keys['ArrowLeft']) moveX -= 1;
+        if (keys['KeyD'] || keys['ArrowRight']) moveX += 1;
+        if (keys['KeyQ']) turnInput += 1;
+        if (keys['KeyE']) turnInput -= 1;
+        if (keys['ShiftLeft'] || keys['ShiftRight']) isSprinting = true;
+        if (keys['Space']) wantJump = true;
+
+        moveX += touchMove.x;
+        moveZ += touchMove.y;
+
+        if (renderer.xr.isPresenting) {
+          let phonePressed = false;
+          vrControllers.forEach(c => {
+            const gp = c.gamepad;
+            if (!gp) return;
+            const axX = gp.axes.length >= 4 ? gp.axes[2] : (gp.axes[0] || 0);
+            const axY = gp.axes.length >= 4 ? gp.axes[3] : (gp.axes[1] || 0);
+            const dead = 0.14;
+            if (c.handedness === 'left') {
+              if (Math.abs(axX) > dead) moveX += axX;
+              if (Math.abs(axY) > dead) moveZ += axY;
+              if (gp.buttons[3] && gp.buttons[3].pressed) isSprinting = true;
+              if (gp.buttons[4] && gp.buttons[4].pressed) wantJump = true;
+              if (gp.buttons[5] && gp.buttons[5].pressed) phonePressed = true;
+            } else {
+              if (Math.abs(axX) > dead) turnInput -= axX;
+              if (gp.buttons[4] && gp.buttons[4].pressed) wantJump = true;
+              if (gp.buttons[5] && gp.buttons[5].pressed) phonePressed = true;
+            }
+            const trig = gp.buttons[0] ? gp.buttons[0].value : 0;
+            const grip = gp.buttons[1] ? gp.buttons[1].value : 0;
+            const thumb = (gp.buttons[3] && (gp.buttons[3].touched || gp.buttons[3].pressed)) ? 0.7 : 0;
+            c.hand.userData.setPose(trig, grip, thumb);
+          });
+          if (phonePressed && !vrPhoneBtnLatched) {
+            vrPhoneBtnLatched = true;
+            if (isPhoneOpen) closeVantaPhone(); else openVantaPhone('home');
+          } else if (!phonePressed) {
+            vrPhoneBtnLatched = false;
+          }
+        } else {
+          desktopHand.userData.setPose(desktopHeldProp ? 0.85 : 0.1, desktopHeldProp ? 0.9 : 0.15, desktopHeldProp ? 0.7 : 0.1);
+        }
+
+        if (Math.abs(turnInput) > 0.01) {
+          playerRig.rotation.y += turnInput * turnSpeed * dt;
+        }
+
+        // Check surface swimming in Harbor Water (Z > 98 and not on wooden pier)
+        const onPier = playerRig.position.x > 67.5 && playerRig.position.x < 84.5 && playerRig.position.z < 111;
+        const inWater = playerRig.position.z > 98.5 && !onPier;
+        if (inWater !== isSwimming) {
+          isSwimming = inWater;
+          swimBanner.style.display = isSwimming ? 'block' : 'none';
+          if (isSwimming) audio.playSplash();
+        }
+
+        const len = Math.hypot(moveX, moveZ);
+        if (len > 0.01) {
+          const normX = len > 1 ? moveX / len : moveX;
+          const normZ = len > 1 ? moveZ / len : moveZ;
+          const speed = isSwimming ? baseSpeed * 0.62 : (isSprinting ? baseSpeed * 2.1 : baseSpeed);
+
+          camera.getWorldDirection(tempDir);
+          tempDir.y = 0;
+          if (tempDir.lengthSq() < 0.0001) tempDir.set(0, 0, -1);
+          tempDir.normalize();
+          const right = new THREE.Vector3().crossVectors(tempDir, THREE.Object3D.DefaultUp).normalize();
+
+          const prevX = playerRig.position.x, prevZ = playerRig.position.z;
+          const dx = (right.x * normX - tempDir.x * normZ) * speed * dt;
+          const dz = (right.z * normX - tempDir.z * normZ) * speed * dt;
+          const resolved = resolvePlayerCollision(prevX + dx, prevZ + dz);
+          playerRig.position.x = resolved.x;
+          playerRig.position.z = resolved.z;
+
+          const moved = Math.hypot(resolved.x - prevX, resolved.z - prevZ);
+          gameState.stats.distanceMeters += moved;
+
+          if (isGrounded || isSwimming) {
+            stepTimer += dt * (isSwimming ? 1.2 : (isSprinting ? 3.0 : 2.0));
+            if (stepTimer >= 1) {
+              stepTimer = 0;
+              if (isSwimming) audio.playSplash();
+              else audio.playStep(isSprinting);
+            }
+          }
+        }
+
+        // Surface swimming buoyancy OR normal jump/gravity
+        if (isSwimming) {
+          const bob = Math.sin(performance.now() * 0.004) * 0.06;
+          playerRig.position.y = -0.82 + bob;
+          playerVelY = 0;
+          isGrounded = false;
+        } else {
+          if (wantJump && isGrounded) {
+            playerVelY = 4.4;
+            isGrounded = false;
+          }
+          if (!isGrounded || playerRig.position.y !== 0) {
+            playerVelY -= 11.5 * dt;
+            playerRig.position.y += playerVelY * dt;
+            if (playerRig.position.y <= 0) {
+              playerRig.position.y = 0;
+              playerVelY = 0;
+              isGrounded = true;
+            }
+          }
+        }
+
+        // Update District & Discovery
+        const nextDistrict = getDistrictAt(playerRig.position.x, playerRig.position.z);
+        if (gameState.district !== nextDistrict) {
+          gameState.district = nextDistrict;
+          document.getElementById('hud-location').textContent = nextDistrict;
+          const baseDist = nextDistrict.split(' — ')[0];
+          if (DISTRICTS.some(d => d.id === baseDist) && !gameState.visitedDistricts.includes(baseDist)) {
+            gameState.visitedDistricts.push(baseDist);
+            addXP(60);
+            showToast(`Discovered ${baseDist}! (+60 XP)`);
+          }
+          audio.setOutdoorAmbience(!nextDistrict.includes('Apt 4B'));
+        }
+      }
+
+      // ============================================================
+      // 13. ANIMATIONS, GPS DISTANCE & MISSION COMPLETION
+      // ============================================================
+      const clock = new THREE.Clock();
+
+      function updateAnimationsAndWorld(dt) {
+        const sh = gameState.safehouse;
+        const lerpRate = Math.min(1, dt * 7);
+
+        frontDoorPivot.rotation.y += ((sh.frontDoorOpen ? -Math.PI * 0.52 : 0) - frontDoorPivot.rotation.y) * lerpRate;
+        balconyDoorPivot.rotation.y += ((sh.balconyDoorOpen ? Math.PI * 0.52 : 0) - balconyDoorPivot.rotation.y) * lerpRate;
+        deskDrawerGroup.position.z += ((sh.deskDrawerOpen ? AZ - 1.85 : AZ - 2.25) - deskDrawerGroup.position.z) * lerpRate;
+        nightDrawerGroup.position.x += ((sh.nightstandOpen ? AX - 2.98 : AX - 3.36) - nightDrawerGroup.position.x) * lerpRate;
+        safeDoorPivot.rotation.y += ((sh.safeOpen ? -Math.PI * 0.58 : 0) - safeDoorPivot.rotation.y) * lerpRate;
+
+        // Pulse GPS beacon & update distance banner
+        if (gameState.gpsTarget && gpsBeacon.visible) {
+          beaconRing.rotation.z += dt * 1.5;
+          const dist = Math.hypot(playerRig.position.x - gameState.gpsTarget.x, playerRig.position.z - gameState.gpsTarget.z);
+          gpsText.textContent = `GPS: ${gameState.gpsTarget.name} — ${Math.round(dist)}m`;
+          if (dist < 4.5 && !gameState.activeMissionId) {
+            showToast('Arrived at ' + gameState.gpsTarget.name);
+            clearGPSTarget();
+          }
+        }
+
+        // Active Mission arrival check
+        if (isPlaying && gameState.activeMissionId) {
+          const m = MISSIONS_LIST.find(x => x.id === gameState.activeMissionId);
+          if (m && Math.hypot(playerRig.position.x - m.targetX, playerRig.position.z - m.targetZ) <= m.radius) {
+            gameState.completedMissions.push(m.id);
+            gameState.activeMissionId = null;
+            gameState.cash += m.rewardCash;
+            addXP(m.rewardXp);
+            clearGPSTarget();
+            audio.playLoot();
+            showToast(`Mission Complete: ${m.title}! +$${m.rewardCash}, +${m.rewardXp} XP`);
+            saveCurrentSlot('Autosaved');
+          }
+        }
+
+        // Keep hip holster anchored to player's body position & head yaw in VR/Desktop
+        const headLocalX = renderer.xr.isPresenting ? camera.position.x : 0;
+        const headLocalZ = renderer.xr.isPresenting ? camera.position.z : 0;
+        const headLocalY = renderer.xr.isPresenting ? Math.max(0.65, camera.position.y - 0.68) : 0.94;
+        const bodyYaw = renderer.xr.isPresenting ? camera.rotation.y : 0;
+        const hipOffsetX = 0.27;
+        const hipOffsetZ = 0.04;
+        hipHolsterGroup.position.set(
+          headLocalX + Math.cos(bodyYaw) * hipOffsetX + Math.sin(bodyYaw) * hipOffsetZ,
+          headLocalY,
+          headLocalZ - Math.sin(bodyYaw) * hipOffsetX + Math.cos(bodyYaw) * hipOffsetZ
+        );
+        hipHolsterGroup.rotation.y = bodyYaw + Math.PI * 0.5;
+
+        // VR controller velocities
+        vrControllers.forEach(c => {
+          c.controller.getWorldPosition(tempPos);
+          if (dt > 0.0001) c.vel.copy(tempPos).sub(c.prevPos).divideScalar(dt);
+          c.prevPos.copy(tempPos);
+        });
+
+        // Dropped prop physics
+        grabbables.forEach(p => {
+          if (p.collected || p.isHeld || p.inDrawer) return;
+          if (p.vel.lengthSq() > 0.0004) {
+            p.vel.y -= 9.8 * dt;
+            p.mesh.position.addScaledVector(p.vel, dt);
+            if (p.mesh.position.y < p.radius) {
+              p.mesh.position.y = p.radius;
+              if (Math.abs(p.vel.y) > 0.6) {
+                p.vel.y *= -0.35;
+                p.vel.x *= 0.7;
+                p.vel.z *= 0.7;
+                audio.playDrop();
+              } else {
+                p.vel.set(0, 0, 0);
+              }
+            }
+          }
+        });
+
+        // Desktop crosshair prompt
+        if (isPlaying && !isPaused && !isPhoneOpen && !renderer.xr.isPresenting) {
+          const target = getDesktopTarget();
+          if (target) {
+            crosshair.classList.add('active');
+            const badge = target.kind === 'prop' && !target.prop.stashable && target.prop.id !== 'prop_vanta_phone' ? 'G' : 'F';
+            interactPrompt.innerHTML = `<span class="key-badge">${badge}</span>${escapeHtml(target.getLabel())}`;
+            interactPrompt.classList.add('visible');
+          } else {
+            crosshair.classList.remove('active');
+            interactPrompt.classList.remove('visible');
+          }
+        }
+
+        // Periodic Autosave & Playtime
+        if (isPlaying && !isPaused) {
+          gameState.stats.playSeconds += dt;
+          autosaveTimer += dt;
+          if (autosaveTimer >= 45) {
+            autosaveTimer = 0;
+            saveCurrentSlot('Autosaved');
+          }
+        }
+      }
+
+      // ============================================================
+      // 14. DOM EVENTS & CONTROLS
+      // ============================================================
+      document.getElementById('btn-play-desktop').addEventListener('click', () => {
+        audio.init();
+        loadSlotIntoWorld(selectedSlotId);
+        isPlaying = true;
+        isPaused = false;
+        titleOverlay.classList.add('hidden');
+        hudEl.style.display = 'block';
+        showToast('Open the Front Door to explore San Verano, or press P for VANTA Phone!');
+      });
+
+      document.getElementById('btn-play-vr').addEventListener('click', startVRSession);
+      document.getElementById('btn-hud-vr').addEventListener('click', startVRSession);
+      document.getElementById('btn-hud-phone').addEventListener('click', () => openVantaPhone('home'));
+      document.getElementById('btn-hud-terminal').addEventListener('click', () => { audio.init(); audio.playClick(); openPauseMenu(); });
+      document.getElementById('btn-hud-pause').addEventListener('click', () => { audio.init(); audio.playClick(); openPauseMenu(); });
+      document.getElementById('btn-clear-gps').addEventListener('click', clearGPSTarget);
+
+      document.getElementById('btn-vanta-home').addEventListener('click', () => { audio.playClick(); renderVantaApp('home'); });
+      document.getElementById('btn-vanta-close').addEventListener('click', () => { audio.playClick(); closeVantaPhone(); });
+
+      document.getElementById('btn-resume').addEventListener('click', () => { audio.playClick(); closePauseMenu(); });
+      document.getElementById('btn-open-phone-from-pause').addEventListener('click', () => openVantaPhone('home'));
+      document.getElementById('btn-manual-save').addEventListener('click', () => {
+        saveCurrentSlot('Manual Save Complete');
+        document.getElementById('pause-slot-info').textContent =
+          `Slot ${gameState.slotId} • Level ${gameState.level} • $${gameState.cash.toLocaleString()} • ${gameState.district}`;
+      });
+
+      document.getElementById('btn-switch-slot').addEventListener('click', () => {
+        saveCurrentSlot();
+        isPlaying = false;
+        isPaused = false;
+        closeVantaPhone();
+        pauseOverlay.classList.add('hidden');
+        hudEl.style.display = 'none';
+        renderSlotsUI();
+        titleOverlay.classList.remove('hidden');
+      });
+
+      document.getElementById('btn-reset-pos').addEventListener('click', () => {
+        playerRig.position.set(APT_ORIGIN.x, 0, APT_ORIGIN.z + 1.4);
+        playerRig.rotation.y = 0;
+        desktopLookPitch = 0;
+        camera.rotation.set(0, 0, 0);
+        showToast('Returned to Eastside Apt 4B.');
+        closePauseMenu();
+      });
+
+      function toggleMute() {
+        audio.muted = !audio.muted;
+        audio.setOutdoorAmbience(!gameState.district.includes('Apt 4B'));
+        updateHUD();
+      }
+      document.getElementById('btn-hud-mute').addEventListener('click', toggleMute);
+      document.getElementById('btn-pause-mute').addEventListener('click', toggleMute);
+
+      document.getElementById('range-turn-speed').addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        gameState.settings.turnSpeed = val;
+        document.getElementById('val-turn-speed').textContent = val.toFixed(1);
+      });
+
+      document.getElementById('range-move-speed').addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        gameState.settings.moveSpeed = val;
+        document.getElementById('val-move-speed').textContent = val.toFixed(1);
+      });
+
+      document.getElementById('btn-confirm-cancel').addEventListener('click', () => {
+        pendingDeleteSlotId = null;
+        confirmOverlay.classList.add('hidden');
+      });
+
+      document.getElementById('btn-confirm-ok').addEventListener('click', () => {
+        if (pendingDeleteSlotId) {
+          deleteSlot(pendingDeleteSlotId);
+          showToast(`Deleted Save Slot ${pendingDeleteSlotId}`);
+          pendingDeleteSlotId = null;
+          renderSlotsUI();
+        }
+        confirmOverlay.classList.add('hidden');
+      });
+
+      // Pointer Lock & Mouse Look
+      renderer.domElement.addEventListener('click', () => {
+        if (!isPlaying || isPaused || isPhoneOpen || renderer.xr.isPresenting) return;
+        audio.init();
+        if (!isPointerLocked && renderer.domElement.requestPointerLock) {
+          try { renderer.domElement.requestPointerLock(); } catch (e) {}
+        } else {
+          handleDesktopInteract();
+        }
+      });
+
+      document.addEventListener('pointerlockchange', () => {
+        isPointerLocked = (document.pointerLockElement === renderer.domElement);
+      });
+
+      document.addEventListener('mousemove', (e) => {
+        if (!isPointerLocked || !isPlaying || isPaused || isPhoneOpen || renderer.xr.isPresenting) return;
+        const sens = 0.0022;
+        playerRig.rotation.y -= e.movementX * sens;
+        desktopLookPitch = Math.max(-1.35, Math.min(1.35, desktopLookPitch - e.movementY * sens));
+        camera.rotation.x = desktopLookPitch;
+      });
+
+      window.addEventListener('keydown', (e) => {
+        keys[e.code] = true;
+        if (!isPlaying) return;
+        if (e.code === 'Escape') {
+          if (isModShopOpen) closeModShop();
+          else if (isPhoneOpen) closeVantaPhone();
+          else if (isPaused) closePauseMenu();
+          else openPauseMenu();
+        } else if (e.code === 'KeyP') {
+          if (isPhoneOpen) closeVantaPhone();
+          else openVantaPhone('home');
+        } else if (e.code === 'KeyM') {
+          if (isPhoneOpen && currentVantaApp === 'maps') closeVantaPhone();
+          else openVantaPhone('maps');
+        } else if (!isPaused && !isPhoneOpen) {
+          if (e.code === 'KeyH' && activeVehicle) {
+            audio.playHorn();
+          } else if (e.code === 'KeyF') {
+            if (activeVehicle) {
+              exitVehicle();
+            } else if (desktopHeldProp && (desktopHeldProp.stashable || desktopHeldProp.cashAmount > 0)) {
+              const p = desktopHeldProp;
+              desktopHeldProp = null;
+              heldIndicator.style.display = 'none';
+              collectLoot(p);
+            } else {
+              handleDesktopInteract();
+            }
+          } else if (e.code === 'KeyG') {
+            toggleDesktopGrab();
+          } else if (e.code === 'KeyT') {
+            tossDesktopHeld();
+          }
+        }
+      });
+
+      window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+      // Touch Controls
+      const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+      if (isTouchDevice) {
+        touchControls.style.display = 'block';
+        const pad = document.getElementById('touch-move-pad');
+        const knob = document.getElementById('touch-move-knob');
+        let padCenter = { x: 0, y: 0 };
+        pad.addEventListener('touchstart', () => {
+          const rect = pad.getBoundingClientRect();
+          padCenter = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+        }, { passive: true });
+        pad.addEventListener('touchmove', (e) => {
+          const t = e.touches[0];
+          const dx = Math.max(-42, Math.min(42, t.clientX - padCenter.x));
+          const dy = Math.max(-42, Math.min(42, t.clientY - padCenter.y));
+          knob.style.transform = `translate(${dx}px, ${dy}px)`;
+          touchMove.x = dx / 42;
+          touchMove.y = dy / 42;
+        }, { passive: true });
+        pad.addEventListener('touchend', () => {
+          knob.style.transform = 'translate(0px, 0px)';
+          touchMove.x = 0; touchMove.y = 0;
+        }, { passive: true });
+        document.getElementById('btn-touch-phone').addEventListener('click', () => openVantaPhone('home'));
+        document.getElementById('btn-touch-interact').addEventListener('click', handleDesktopInteract);
+        document.getElementById('btn-touch-grab').addEventListener('click', () => toggleDesktopGrab());
+        document.getElementById('btn-touch-jump').addEventListener('click', () => {
+          if (isGrounded) { playerVelY = 4.4; isGrounded = false; }
+        });
+      }
+
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      window.addEventListener('load', () => {
+        renderSlotsUI();
+        checkWebXRSupport();
+        renderer.setAnimationLoop(() => {
+          const dt = Math.min(clock.getDelta(), 0.05);
+          updateLocomotion(dt);
+          updateAnimationsAndWorld(dt);
+          renderer.render(scene, camera);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
