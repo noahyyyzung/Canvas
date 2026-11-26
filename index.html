@@ -683,6 +683,8 @@ function infoPanel(title, rows, w = 1.5, h = 1.05) {
   [[p1, 41.2], [p2, 44.75], [p3, 48.3]].forEach(([p, z]) => { p.position.set(58.7, y + 1.75, z); p.rotation.y = -Math.PI / 2; scene.add(p); });
   const p4 = infoPanel('FIGHT', [['PUNCH / KICK', 'Throw real punches: your hands are solid and stop on faces and bodies. Push heads and arms around. Click the RIGHT stick to kick.'], ['BLOCK / PARRY', 'Their punches really hit your arms. Put your forearms in the way. Knock the punch away as it comes to parry.'], ['COUNTER', 'Hit a thug WHILE he flashes red.'], ['GRAB / THROW / SLAM', 'Tap grip on a body. Shove him into walls, or swing and let go to throw.'], ['DISARM / FINISH', 'Grab the weapon hand. Hit a stunned thug hard to finish him.']], 1.5, 1.15);
   p4.position.set(55.9, y + 1.8, 50.95); p4.rotation.y = Math.PI; scene.add(p4);
+  const p5 = infoPanel('BATONS & STAFF', [['DRAW / HOLSTER', 'Reach to a hip and grip to draw a baton. Let go at your hip to holster it.'], ['JOIN / SPLIT', 'Touch the baton tips together to snap them into a bo staff. Yank your hands apart to split it.'], ['THROW / RECALL', 'Let go mid-swing to throw. Pull the TRIGGER on an empty hand and the cord reels it back.'], ['BONES', 'Hard hits break bones. Watch for the X-ray.']], 1.5, 1.05);
+  p5.position.set(60.6, y + 1.8, 51.0); p5.rotation.y = Math.PI; scene.add(p5);
   const sign = infoPanel('CATHEDRAL QUARTER', [['', 'Red Order territory. Reach the top of the cathedral spire.']], 1.6, 0.42);
   sign.position.set(66.8, y + 2.4, 44.75); sign.rotation.y = -Math.PI / 2; scene.add(sign);
 }
@@ -1008,10 +1010,12 @@ function updateGrabs(dt) {
     h.cd -= dt;
     const down = h.gripV > 0.6; if (down && !h.gripWas) h.pressT = time; h.gripWas = down;
     if (h.holdE) { if (h.gripV < 0.32) releaseEnemyHold(h); continue; }
+    if (h.pw) { if (h.gripV < 0.32) releasePW(h); continue; }
     if (h.weapon) { if (h.gripV < 0.32) dropWeapon(h); continue; }
     if (h.grabbing) { if (h.gripV < 0.32) release(h); continue; }
     if (h.gripV < 0.32) { h.needRe = false; continue; }
     if (h.needRe || h.cd > 0 || !h.has || P.anim) continue;
+    if (time - (h.pressT || -9) < 0.15 && tryPWGrab(h)) continue;
     if (time - (h.pressT || -9) < 0.15 && tryCombatGrab(h)) continue;
     const g = findGrab(handWorld(h, tB));
     if (g) startGrab(h, g);
@@ -1267,7 +1271,7 @@ function readDesktop(dt) {
     tA.set(h.i === 0 ? -0.2 : 0.2, -0.12 - (h.deskPull || 0), -0.42 - pz).applyQuaternion(headQL).add(camLocal);
     if (h.grabbing) { tA.copy(h.local); tA.y = camLocal.y - 0.12 - h.deskPull; }
     h.local.copy(tA); h.q.copy(headQL); h.has = true;
-    h.gripV = (KEY.KeyG || mouseR) ? 1 : 0; h.trigV = 0;
+    h.gripV = (KEY.KeyG || mouseR || h.pw) ? 1 : 0; h.trigV = 0;
   }
   IN.kickE = edge('KeyE', !!KEY.KeyE);
   IN.jumpE = edge('Space', !!KEY.Space); IN.slideE = edge('KeyC', !!KEY.KeyC); IN.slideH = !!KEY.KeyC; IN.yE = false;
@@ -1303,8 +1307,8 @@ function computeSwing(dt) {
 
 /* ---------------- MENU ---------------- */
 const MENU = { open: false, hover: -1 };
-const menuCv = canvas(1024, 1100), menuG = menuCv.getContext('2d'), menuTex = texFrom(menuCv, true, false);
-const menuMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 1.074), new THREE.MeshBasicMaterial({ map: menuTex, transparent: true, toneMapped: false, depthTest: false }));
+const menuCv = canvas(1024, 1200), menuG = menuCv.getContext('2d'), menuTex = texFrom(menuCv, true, false);
+const menuMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 1.172), new THREE.MeshBasicMaterial({ map: menuTex, transparent: true, toneMapped: false, depthTest: false }));
 menuMesh.renderOrder = 998; menuMesh.visible = false; scene.add(menuMesh);
 const sensName = () => SET.sens < 0.9 ? 'LOW' : SET.sens > 1.1 ? 'HIGH' : 'NORMAL';
 const MITEMS = [
@@ -1316,12 +1320,13 @@ const MITEMS = [
   { id: 'calib', label: () => 'CALIBRATE HEIGHT  ·  YOU: ' + ftIn(SET.playerH) + '  (' + SET.playerH.toFixed(2) + ' m)' },
   { id: 'hminus', label: () => 'HEIGHT  − 1 INCH' },
   { id: 'hplus', label: () => 'HEIGHT  + 1 INCH' },
+  { id: 'wmat', label: () => 'BATON / STAFF MATERIAL:  ' + WMAT[SET.staffMat].name + '  (TEST)' },
   { id: 'respawn', label: () => 'RESPAWN AT LAST CHECKPOINT' },
   { id: 'spawn', label: () => 'SPAWN 4 THUGS NEAR ME (TEST FIGHT)' },
 ];
 function drawMenu() {
-  const g = menuG; g.clearRect(0, 0, 1024, 1100);
-  g.fillStyle = 'rgba(6,5,7,0.93)'; g.fillRect(0, 0, 1024, 1100); g.fillStyle = '#9e1119'; g.fillRect(0, 0, 1024, 12);
+  const g = menuG; g.clearRect(0, 0, 1024, 1200);
+  g.fillStyle = 'rgba(6,5,7,0.93)'; g.fillRect(0, 0, 1024, 1200); g.fillStyle = '#9e1119'; g.fillRect(0, 0, 1024, 12);
   g.font = 'bold 78px Impact, "Arial Black", sans-serif'; g.fillStyle = '#c8141e'; g.fillText('RECKONER', 48, 110);
   g.font = '26px "Segoe UI", Arial'; g.fillStyle = '#888'; g.fillText('PAUSED · STAGE 1 · point with the right hand, pull the trigger', 50, 152);
   MITEMS.forEach((it, i) => {
@@ -1329,7 +1334,7 @@ function drawMenu() {
     g.fillStyle = i === MENU.hover ? 'rgba(160,16,26,0.85)' : 'rgba(255,255,255,0.06)'; g.fillRect(40, y, 944, 70);
     g.font = 'bold 32px "Segoe UI", Arial'; g.fillStyle = '#f2f2f2'; g.fillText(it.label(), 66, y + 47);
   });
-  g.font = '22px "Segoe UI", Arial'; g.fillStyle = '#666'; g.fillText('made by Noah Young.', 50, 1080);
+  g.font = '22px "Segoe UI", Arial'; g.fillStyle = '#666'; g.fillText('made by Noah Young.', 50, 1180);
   menuTex.needsUpdate = true;
 }
 function openMenu() {
@@ -1346,7 +1351,7 @@ function menuUpdate() {
   const o = tA.setFromMatrixPosition(h.root.matrixWorld), d = tB.set(0, 0, -1).applyQuaternion(h.root.getWorldQuaternion(tQ));
   ray.set(o, d); const hit = ray.intersectObject(menuMesh)[0];
   let hov = -1;
-  if (hit && hit.uv) { const py = (1 - hit.uv.y) * 1100; const i = Math.floor((py - 190) / 84); if (i >= 0 && i < MITEMS.length && (py - 190) % 84 < 70) hov = i; laser.scale.z = hit.distance; } else laser.scale.z = 2;
+  if (hit && hit.uv) { const py = (1 - hit.uv.y) * 1200; const i = Math.floor((py - 190) / 84); if (i >= 0 && i < MITEMS.length && (py - 190) % 84 < 70) hov = i; laser.scale.z = hit.distance; } else laser.scale.z = 2;
   if (hov !== MENU.hover) { MENU.hover = hov; drawMenu(); if (hov >= 0) buzz(h, 0.2, 15); }
   if ((IN.trigRE || IN.trigLE) && hov >= 0) {
     SFX.click(); const id = MITEMS[hov].id;
@@ -1358,6 +1363,7 @@ function menuUpdate() {
     if (id === 'sens') SET.sens = SET.sens < 0.9 ? 1 : SET.sens < 1.1 ? 1.35 : 0.75;
     if (id === 'calib') { closeMenu(); startCalibration(); return; }
     if (id === 'hminus' || id === 'hplus') { setPlayerHeight(SET.playerH + (id === 'hplus' ? 0.0254 : -0.0254)); SET.manualH = true; }
+    if (id === 'wmat') { const order = ['wood', 'steel', 'weighted']; SET.staffMat = order[(order.indexOf(SET.staffMat) + 1) % 3]; applyWeaponMat(); }
     if (id === 'respawn') { closeMenu(); die(); }
     if (id === 'spawn') { closeMenu(); spawnNearPlayer(); return; }
     saveSet(); drawMenu();
@@ -1425,7 +1431,7 @@ function drawHud() {
   g.fillStyle = '#3a0c10'; g.fillRect(118, 52, 128, 12); g.fillStyle = '#e02a33'; g.fillRect(118, 52, 128 * clamp(sp / 3.6 / VMAX, 0, 1.2) / 1.2, 12);
   g.font = 'bold 22px "Segoe UI", Arial'; g.fillStyle = '#ff4a52'; g.fillText(P.labelT > 0 ? P.label : '', 10, 112);
   hudTex.needsUpdate = true;
-  if (desktop) document.getElementById('dhud').textContent = `HP ${P.hp | 0}   SPEED ${sp | 0} km/h   ${P.labelT > 0 ? P.label : ''}\nWASD move · Shift sprint · Space jump · C crouch/slide/roll · G or right-mouse grab · W while hanging = pull up\nArrows mid-air = flips · F flip mode (${SET.flip}) · R respawn\nLeft-click / Q punch · E kick · tap G/right-mouse on a thug = grab, release while turning = throw · T spawn thugs`;
+  if (desktop) document.getElementById('dhud').textContent = `HP ${P.hp | 0}   SPEED ${sp | 0} km/h   ${P.labelT > 0 ? P.label : ''}\nWASD move · Shift sprint · Space jump · C crouch/slide/roll · G or right-mouse grab · W while hanging = pull up\nArrows mid-air = flips · F flip mode (${SET.flip}) · R respawn\nLeft-click / Q punch · E kick · tap G/right-mouse on a thug = grab, release while turning = throw · T spawn thugs\n1 draw/holster batons · 2 join/split staff · 3 throw · 4 recall · 5 material`;
 }
 
 /* =====================================================================
@@ -1575,7 +1581,7 @@ function makeEnemy(x, y, z, opt = {}) {
   }
   const e = {
     root, J, mats, sc, scVar, halo, pos: new V3(x, y, z), yaw: CR(0, 6.28), yawT: 0, vel: new V3(), push: new V3(), hp: 100, poise: 30, maxPoise: 30,
-    state: 'idle', st: 0, aware: false, gang: opt.gang || null, home: new V3(x, y, z), cur: new Float32Array(PO.REL), curV: new Float32Array(PLEN), yawV: 0, react: null, combo: 0, dodgeCd: 0, tgt: new Float32Array(PO.REL),
+    state: 'idle', st: 0, aware: false, gang: opt.gang || null, home: new V3(x, y, z), bones: { skull: 85, ribs: 50, armL: 26, armR: 26, legL: 32, legR: 32 }, broken: {}, pickCd: 2, fetch: null, cur: new Float32Array(PO.REL), curV: new Float32Array(PLEN), yawV: 0, react: null, combo: 0, dodgeCd: 0, tgt: new Float32Array(PO.REL),
     spr: new Float32Array(18), sprV: new Float32Array(18), ph: CR(0, 6), atk: null, atkCd: CR(1, 2.5), wantAtk: false, slotAng: CR(0, 6.28), circ: crnd() < 0.5 ? -1 : 1,
     freeze: 0, flash: 0, hitCd: [0, 0], weapon: null, clip: null, clipT: 0, clipStart: new Float32Array(PLEN), drift: new V3(), lieT: 0, stunT: 0, stunned: false,
     holdT: 0, holdOff: new V3(), slamCd: 0, slams: 0, tripCd: 0, dead: false, deadT: 0, idx: ENEMIES.length, smoke: crnd() < 0.3, lv: new V3(), thrownMax: 0,
@@ -1725,6 +1731,7 @@ function knockdown(e, dir, kind) {
 }
 function dropEnemyWeapon(e) {
   const w = e.weapon; if (!w) return; e.weapon = null;
+  if (w.pw) { const o = w.pw; o.state = 'flying'; o.owner = null; o.init = false; o.vel.set(CR(-1, 1), 1.5, CR(-1, 1)); o.spin.set(CR(-4, 4), 0, CR(-4, 4)); return; }
   w.mesh.getWorldPosition(cA); w.mesh.getWorldQuaternion(cQ);
   e.J.haR.remove(w.mesh); scene.add(w.mesh); w.mesh.position.copy(cA); w.mesh.quaternion.copy(cQ);
   w.state = 'free'; w.owner = null; w.rest = false; w.vel.set(CR(-1, 1), 1.5, CR(-1, 1)); w.spin = CR(-6, 6);
@@ -1751,7 +1758,7 @@ function registerHit(e, H) {
   const counter = !limb && e.state === 'attack' && e.atk && e.atk.t < e.atk.wu;
   const finisher = !limb && !downed && e.state === 'stun' && (H.speed > 3.2 || H.src === 'kick' || H.src === 'weapon');
   let dmg = H.dmg != null ? H.dmg : clamp((H.speed - 1.3) * 7, 4, 26);
-  if (part === 'head') dmg *= 1.35; if (limb) dmg *= 0.45; if (back) dmg *= 1.5; if (counter) dmg *= 1.8;
+  if (part === 'head') dmg *= 1.35; if (limb) dmg *= (H.limbMult || 0.45); if (back) dmg *= 1.5; if (counter) dmg *= 1.8;
   e.hp -= dmg; e.poise -= dmg * (limb ? 0.6 : 1.25); e.st = Math.min(e.st, 0);
   alertGang(e);
   // impact feel
@@ -1775,7 +1782,9 @@ function registerHit(e, H) {
   spawnBlood(bp, cD.set(dir.x, 0.6, dir.z), Math.round(clamp(dmg * (part === 'head' ? 0.7 : 0.4), 3, 26)), 2 + dmg * 0.05);
   if (dmg > 18 || part === 'head') addDecal(cE.set(bp.x + dir.x * 0.6, 0, bp.z + dir.z * 0.6).setY((groundBelow(bp.x + dir.x * 0.6, bp.z + dir.z * 0.6, bp.y) || { y1: e.pos.y }).y1), UP, CR(0.06, 0.14));
   // sound
-  if (H.src === 'weapon') { if (H.wtype === 'bat') SFX.bat(); else SFX.stab(); } else SFX.punch(dmg);
+  if (H.src === 'weapon') { if (H.wtype === 'bat') SFX.wood(dmg); else if (H.wtype === 'knife') SFX.stab(); else SFX.materialHit(dmg); }
+  else if (part === 'head') SFX.punchHead(dmg); else SFX.punchBody(dmg);
+  boneHit(e, part, dmg, H);
   if (dmg > 20 || counter || finisher) SFX.crack();
   if (crnd() < 0.6) SFX.grunt(1, 0.16 + dmg * 0.004);
   // outcome
@@ -1784,7 +1793,8 @@ function registerHit(e, H) {
     killEnemy(e, dir, crnd() < 0.5 ? 'head' : 'body'); return;
   }
   if (e.hp <= 0) { killEnemy(e, dir, part); if (!downed) setLabel(counter ? 'COUNTER — KNOCKOUT' : 'KNOCKOUT', 1.2); if (counter) slowMo(0.4, 0.45); return; }
-  if (downed) { setLabel('GROUND HIT', 0.7); return; }
+  if (downed) { if (P.labelT <= 0) setLabel('GROUND HIT', 0.7); return; }
+  if (e.legBreakKnock) { e.legBreakKnock = false; knockdown(e, dir); return; }
   if (counter) { slowMo(0.4, 0.45); setLabel('COUNTER', 1.2); knockdown(e, dir); return; }
   if (H.knock) { knockdown(e, dir); return; }
   if (e.poise <= 0) { e.poise = e.maxPoise; if (e.hp < 45 && !e.stunned) { stun(e); setLabel('STUNNED — FINISH HIM', 1.6); } else { stagger(e, 0.55 + dmg * 0.012); if (back) setLabel('BACK ATTACK', 0.8); } return; }
@@ -1802,7 +1812,9 @@ const ATK = {
 };
 function tokensUsed() { let n = 0; for (const o of ENEMIES) if (!o.dead && (o.state === 'attack' || o.wantAtk)) n++; return n; }
 function startAttack(e, combo) {
-  const type = e.weapon ? e.weapon.type : combo ? (e.lastAtk === 'jab' ? 'hook' : 'jab') : (crnd() < 0.6 ? 'jab' : 'hook');
+  if (e.weapon && e.broken.armR) dropEnemyWeapon(e);
+  let type = e.weapon ? e.weapon.type : combo ? (e.lastAtk === 'jab' ? 'hook' : 'jab') : (crnd() < 0.6 ? 'jab' : 'hook');
+  if (!e.weapon) { if (type === 'jab' && e.broken.armL) type = 'hook'; if (type === 'hook' && e.broken.armR) type = 'jab'; }
   e.atk = Object.assign({ type, t: 0, hit: false }, ATK[type]); e.state = 'attack'; e.st = 0; e.wantAtk = false;
   if (combo) e.atk.wu *= 0.6; else e.combo = (!e.weapon && crnd() < 0.4) ? 1 : 0;
   e.lastAtk = type;
@@ -1867,20 +1879,23 @@ function enemyUpdate(e, dt) {
     }
     case 'alert': { if (e.st > 0) faceTo(e, P.pos.x, P.pos.z, 4, dt); if (e.st > 0.45) { e.state = 'engage'; e.st = 0; e.slotAng = Math.atan2(e.pos.z - P.pos.z, e.pos.x - P.pos.x); } break; }
     case 'engage': {
+      if (e.injured) { e.state = 'flee'; e.st = 0; e.wantAtk = false; break; }
       if (!reachable) { e.state = 'watch'; e.st = 0; e.wantAtk = false; break; }
       faceTo(e, P.pos.x, P.pos.z, 7, dt);
       const myAng = Math.atan2(e.pos.z - P.pos.z, e.pos.x - P.pos.x);
       let da = myAng - e.slotAng; da = Math.atan2(Math.sin(da), Math.cos(da)); e.slotAng += da * Math.min(1, dt * 0.8) + e.circ * dt * 0.22;
-      const ringR = e.wantAtk ? 0.92 * e.sc : 2.3 + (e.idx % 3) * 0.45 + Math.sin(time * 1.3 + e.ph) * 0.45;
+      const ringR = e.wantAtk ? 0.92 * e.sc : 2.3 + (e.idx % 3) * 0.45 + Math.sin(time * 1.3 + e.ph) * 0.45 + (hands[0].pw || hands[1].pw ? 0.45 : 0);
+      if (!e.weapon && !e.broken.armR) { e.pickCd -= dt; if (e.pickCd <= 0) { e.pickCd = 1.5; if (!e.fetch && d > 2.2) e.fetch = looseWeaponNear(e, 7); } }
       e.dodgeCd -= dt;
       if (e.dodgeCd <= 0) for (const h of hands) { if (h.gW && h.wv.length() > 3.2 && h.gW.distanceTo(e.headP) < 0.6 && h.wv.dot(cA.subVectors(e.headP, h.gW)) > 0) { e.dodgeCd = 1.4; if (crnd() < 0.22) { const sd = crnd() < 0.5 ? -1 : 1; e.sprV[2] += sd * 5; e.sprV[5] += sd * 3.5; e.sprV[6] += 2; e.push.x += Math.cos(e.yaw) * sd * 1.3; e.push.z += -Math.sin(e.yaw) * sd * 1.3; SFX.swing(); } break; } }
       let tx, tz;
       if (e.wantAtk) { tx = P.pos.x - dx / (d || 1) * ringR; tz = P.pos.z - dz / (d || 1) * ringR; }
       else { tx = P.pos.x + Math.cos(e.slotAng) * ringR; tz = P.pos.z + Math.sin(e.slotAng) * ringR; }
+      if (e.fetch) { const F = e.fetch, fp = F.w ? F.w.mesh.position : F.pw.pos, ok = F.w ? F.w.state === 'free' : F.pw.state === 'ground'; if (!ok || e.weapon) e.fetch = null; else { tx = fp.x; tz = fp.z; e.wantAtk = false; if (Math.hypot(fp.x - e.pos.x, fp.z - e.pos.z) < 0.65) { enemyTakeLoose(e, F); e.fetch = null; } } }
       const ex = tx - e.pos.x, ez = tz - e.pos.z, ed = Math.hypot(ex, ez);
       const spd = ed > 4 ? 3.7 : ed > 1.2 ? 2.0 : ed * 1.4;
       if (ed > 0.05) wantV.set(ex / ed * spd, 0, ez / ed * spd);
-      if (!e.wantAtk && e.atkCd <= 0 && d < 4.5 && tokensUsed() < 2 && P.grabHand < 0) { e.wantAtk = true; e.wantT = 0; }
+      if (!e.wantAtk && e.atkCd <= 0 && d < 4.5 && tokensUsed() < 2 && P.grabHand < 0 && !(e.broken.armL && e.broken.armR) && !e.fetch) { e.wantAtk = true; e.wantT = 0; }
       if (e.wantAtk && (e.wantT += dt) > 2.6) { e.wantAtk = false; e.atkCd = CR(0.3, 0.9); e.circ = -e.circ; }
       const reach = (e.weapon && e.weapon.type === 'bat' ? 1.45 : 1.05) * e.sc;
       if (e.wantAtk && d < reach && Math.abs(dy) < 0.9 && P.grabHand < 0) startAttack(e);
@@ -1906,13 +1921,13 @@ function enemyUpdate(e, dt) {
       else { e.state = 'engage'; e.st = 0; e.atk = null; e.atkCd = CR(1.2, 2.6); }
       break;
     }
-    case 'flinch': { const k = Math.sin(Math.PI * clamp(e.st / 0.38, 0, 1)); poseLerp(T, base, PO.FLINCH, k * 0.55); faceTo(e, P.pos.x, P.pos.z, 4, dt); if (e.st > 0.38) { e.state = 'engage'; e.st = 0; e.atkCd = Math.max(e.atkCd, 0.5); } break; }
-    case 'stagger': { poseLerp(T, base, PO.STAGGER, 0.85); T[JI.shL + 2] += Math.sin(time * 7 + e.ph) * 0.25; T[JI.shR + 2] -= Math.sin(time * 6 + e.ph) * 0.25; T[JI.head + 2] += Math.sin(time * 5 + e.ph) * 0.12; if (e.st > e.stagT) { e.state = 'engage'; e.st = 0; e.atkCd = Math.max(e.atkCd, 0.7); } break; }
+    case 'flinch': { const k = Math.sin(Math.PI * clamp(e.st / 0.38, 0, 1)); poseLerp(T, base, PO.FLINCH, k * 0.55); faceTo(e, P.pos.x, P.pos.z, 4, dt); if (e.st > 0.38) { e.state = e.injured ? 'flee' : 'engage'; e.st = 0; e.atkCd = Math.max(e.atkCd, 0.5); } break; }
+    case 'stagger': { poseLerp(T, base, PO.STAGGER, 0.85); T[JI.shL + 2] += Math.sin(time * 7 + e.ph) * 0.25; T[JI.shR + 2] -= Math.sin(time * 6 + e.ph) * 0.25; T[JI.head + 2] += Math.sin(time * 5 + e.ph) * 0.12; if (e.st > e.stagT) { e.state = e.injured ? 'flee' : 'engage'; e.st = 0; e.atkCd = Math.max(e.atkCd, 0.7); } break; }
     case 'stun': {
       T.set(PO.STUN); T[JI.spine + 2] += Math.sin(time * 2.1 + e.ph) * 0.14; T[JI.head + 2] += Math.sin(time * 1.7 + e.ph) * 0.2; T[JI.hips + 2] += Math.sin(time * 2.1 + e.ph + 1) * 0.06;
       wantV.set(Math.sin(time * 1.3 + e.ph) * 0.35, 0, Math.cos(time * 1.1 + e.ph) * 0.35);
       e.halo.rotation.y += dt * 4;
-      e.stunT -= dt; if (e.stunT <= 0) { e.state = 'engage'; e.st = 0; e.halo.visible = false; }
+      e.stunT -= dt; if (e.stunT <= 0) { e.state = e.injured ? 'flee' : 'engage'; e.st = 0; e.halo.visible = false; }
       break;
     }
     case 'held': {
@@ -1970,14 +1985,34 @@ function enemyUpdate(e, dt) {
       if (e.clipT < e.clip.landT + 0.1) emove(e, e.drift.x * dt, e.drift.z * dt, false);
       if (done) {
         if (e.dead) { e.state = 'dead'; e.st = 0; e.deadT = 0; e.pool = addDecal(cE.copy(e.headP).setY(e.pos.y + 0.004), UP, 0.08, CR(0.55, 0.85)); }
-        else if (e.clip.lie) { e.lieT -= dt; if (e.lieT <= 0) { const lie = e.clip.lie; startClip(e, lie === 'B' ? 'getupB' : 'getupF'); e.state = 'getup'; e.st = 0; } }
+        else if (e.clip.lie) { if (e.broken.legL && e.broken.legR) e.lieT = 99; e.lieT -= dt; if (e.lieT <= 0) { const lie = e.clip.lie; startClip(e, lie === 'B' ? 'getupB' : 'getupF'); e.state = 'getup'; e.st = 0; } }
       }
       walking = false;
       break;
     }
-    case 'getup': { const done = sampleClip(e, T); e.clipT += dt; faceTo(e, P.pos.x, P.pos.z, 1.5, dt); if (done) { e.clip = null; e.state = 'engage'; e.st = 0; e.atkCd = 0.8; } walking = false; break; }
+    case 'getup': { const done = sampleClip(e, T); e.clipT += dt; faceTo(e, P.pos.x, P.pos.z, 1.5, dt); if (done) { e.clip = null; e.state = e.injured ? 'flee' : 'engage'; e.st = 0; e.atkCd = 0.8; } walking = false; break; }
     case 'dead': { if (e.clip) sampleClip(e, T); else T.set(PO.LIE_B); e.deadT += dt; walking = false; break; }
+    case 'flee': {
+      const limp = e.broken.legL || e.broken.legR;
+      e.painT -= dt; if (e.painT <= 0) { e.painT = CR(1.1, 2.4); SFX.grunt(0.75, 0.2); }
+      if (!e.fleeTgt || e.st > (e.fleeRe || 0)) { e.fleeTgt = fleeSpot(e); e.fleeRe = e.st + 1.6; }
+      if (e.fleeTgt) {
+        const fx = e.fleeTgt.x - e.pos.x, fz = e.fleeTgt.z - e.pos.z, fd = Math.hypot(fx, fz), spd = limp ? 1.25 : 3.3;
+        if (fd > 0.4) { wantV.set(fx / fd * spd, 0, fz / fd * spd); faceTo(e, e.fleeTgt.x, e.fleeTgt.z, 6, dt); }
+        if (fd < 0.6 && d > 5) { e.state = 'cower'; e.st = 0; }
+      } else if (d > 4) { e.state = 'cower'; e.st = 0; }
+      if (d > 9) { e.state = 'cower'; e.st = 0; }
+      break;
+    }
+    case 'cower': {
+      faceTo(e, P.pos.x, P.pos.z, 2, dt);
+      T[IHY] -= 0.22; T[JI.knL] += 0.7; T[JI.knR] += 0.7; T[JI.thL] -= 0.35; T[JI.thR] -= 0.35;
+      e.painT -= dt; if (e.painT <= 0) { e.painT = CR(1.8, 3.5); SFX.grunt(0.7, 0.15); }
+      if (d < 4.2 && !P.dead) { e.state = 'flee'; e.st = 0; e.fleeTgt = null; }
+      break;
+    }
     case 'watch': {
+      if (e.injured) { e.state = 'cower'; e.st = 0; break; }
       if (reachable && d < 16) { e.state = 'engage'; e.st = 0; break; }
       faceTo(e, P.pos.x, P.pos.z, 3, dt);
       const hx = e.home.x - e.pos.x, hz = e.home.z - e.pos.z, hd = Math.hypot(hx, hz);
@@ -1988,6 +2023,7 @@ function enemyUpdate(e, dt) {
     }
   }
   // movement for walking states
+  if (e.broken.legL || e.broken.legR) wantV.multiplyScalar(0.45);
   if (walking) {
     e.vel.x += (wantV.x - e.vel.x) * Math.min(1, dt * 8); e.vel.z += (wantV.z - e.vel.z) * Math.min(1, dt * 8);
     // separation
@@ -2046,6 +2082,25 @@ function applyPose(e, dt) {
     const kk = R.t < 0.06 ? R.t / 0.06 : Math.max(0, 1 - (R.t - 0.06) / R.dur);
     if (!clipState) poseLerp(T, T, R.pose, easeIO(kk) * R.amt);
     if (R.t > R.dur + 0.06) e.react = null;
+  }
+  if (e.clutch && !clipState && (e.state === 'flee' || e.state === 'cower')) {
+    const C = e.clutch;
+    T[JI.spine] = C.hunch ? 0.85 : 0.32; T[JI.chest] = C.hunch ? 0.25 : 0.12; T[JI.neck] = C.hunch ? -0.55 : -0.15; T[JI.head] = C.hunch ? -0.3 : -0.1;
+    T[JI.spine + 1] = T[JI.spine + 2] = T[JI.chest + 1] = T[JI.chest + 2] = 0;
+    if (C.hunch) { const sd = C.key.startsWith('legR') ? 'R' : 'L'; T[JI['th' + sd]] = lerp(T[JI['th' + sd]], -0.3, 0.8); T[JI['kn' + sd]] = lerp(T[JI['kn' + sd]], 0.45, 0.8); T[JI['th' + sd] + 2] *= 0.3; }
+    if (C.L) { T[JI.shL] = C.L[0]; T[JI.shL + 1] = C.L[1]; T[JI.shL + 2] = C.L[2]; T[JI.elL] = C.L[3]; T[JI.elL + 1] = T[JI.elL + 2] = 0; }
+    if (C.R) { T[JI.shR] = C.R[0]; T[JI.shR + 1] = C.R[1]; T[JI.shR + 2] = C.R[2]; T[JI.elR] = C.R[3]; T[JI.elR + 1] = T[JI.elR + 2] = 0; }
+    // glance back over the shoulder at you while running
+    if (e.state === 'flee' && Math.sin(time * 0.9 + e.ph) > 0.2) {
+      const la = Math.atan2(P.pos.x - e.pos.x, P.pos.z - e.pos.z) - e.yaw; T[JI.head + 1] = clamp(Math.atan2(Math.sin(la), Math.cos(la)), -1.3, 1.3) * 0.75; T[JI.neck + 1] = T[JI.head + 1] * 0.4;
+    }
+  }
+  if (e.broken && !clipState) {
+    if (e.broken.armL) { T[JI.shL] = 0.18 + Math.sin(time * 3 + e.ph) * 0.05; T[JI.shL + 1] = 0; T[JI.shL + 2] = -0.1; T[JI.elL] = -0.3; }
+    if (e.broken.armR) { T[JI.shR] = 0.18 + Math.sin(time * 3.2 + e.ph) * 0.05; T[JI.shR + 1] = 0; T[JI.shR + 2] = 0.1; T[JI.elR] = -0.3; }
+    if (e.broken.ribs) { T[JI.spine] += 0.28; T[JI.chest] += 0.12; T[IHY] -= 0.04; }
+    if (e.broken.legL) { T[JI.knL] += 0.35; T[IHY] -= 0.05; T[JI.spine + 2] += 0.1; }
+    if (e.broken.legR) { T[JI.knR] += 0.35; T[IHY] -= 0.05; T[JI.spine + 2] -= 0.1; }
   }
   // every joint is a critically-damped spring: natural acceleration + settle, no linear sliding
   let K = 170; if (clipState) K = 520; else if (e.state === 'attack' && e.atk && e.atk.t > e.atk.wu * 0.85) K = 950; else if (e.state === 'attack') K = 260; else if (e.state === 'airfall') K = 110;
@@ -2114,7 +2169,7 @@ function tryCombatGrab(h) {
   const g = findEnemyGrab(hw); if (!g) return false;
   const e = g.e;
   if (g.disarm) {
-    const w = e.weapon; e.weapon = null; e.J.haR.remove(w.mesh); takeWeapon(h, w);
+    const w = e.weapon; e.weapon = null; if (w.pw) { w.pw.owner = null; attachBaton(w.pw, h); } else { e.J.haR.remove(w.mesh); takeWeapon(h, w); }
     flinch(e); e.state = 'stagger'; e.stagT = 0.6; e.st = 0; e.poise -= 15; alertGang(e);
     SFX.block(); SFX.grunt(1.1, 0.2); setLabel('DISARMED', 1.1); buzz(h, 0.8, 60); return true;
   }
@@ -2315,7 +2370,7 @@ function spawnGang(box, n, opts = {}) {
 }
 function disposeEnemy(e) {
   scene.remove(e.root); for (const k in e.mats) e.mats[k].dispose();
-  if (e.weapon) { const i = WEAPONS.indexOf(e.weapon); if (i >= 0) WEAPONS.splice(i, 1); }
+  if (e.weapon) { if (e.weapon.pw) { e.weapon.pw.state = 'flying'; e.weapon.pw.owner = null; e.weapon.pw.init = false; } else { const i = WEAPONS.indexOf(e.weapon); if (i >= 0) WEAPONS.splice(i, 1); } }
   const i = ENEMIES.indexOf(e); if (i >= 0) ENEMIES.splice(i, 1);
 }
 function respawnGang(g) {
@@ -2389,6 +2444,7 @@ function combatUpdate(dt) {
     }
   }
   kickUpdate(dt);
+  xrayUpdate(dt);
   drumsUpdate(dt, combatHot && !P.dead);
 }
 
@@ -2484,7 +2540,7 @@ function handContacts(dt) {
     const v = pY.subVectors(Rw, h.rPrev).divideScalar(Math.max(dt, 1e-3));
     if (!h.rInit || v.length() > 25) { v.set(0, 0, 0); h.rInit = true; h.gPrev.copy(Rw); }
     h.rPrev.copy(Rw); h.wv.lerp(v, 0.5);
-    const free = h.grabbing || h.holdE || h.weapon || MENU.open || !nearE.length;
+    const free = h.grabbing || h.holdE || h.weapon || h.pw || MENU.open || !nearE.length;
     if (free) { h.gOff.multiplyScalar(Math.exp(-20 * dt)); h.gW.copy(Rw).add(h.gOff); h.gPrev.copy(h.gW); continue; }
     const rel = pZ.copy(v).sub(P.vel), sp = rel.length();
     // ---- 1) swept punch: last visible hand position -> real hand
@@ -2504,7 +2560,7 @@ function handContacts(dt) {
       const n = pQ2.subVectors(hit.p, hit.q); if (n.lengthSq() < 1e-8) n.copy(rel).negate(); n.normalize();
       const contact = pW.copy(hit.q).addScaledVector(n, c.r + HAND_R + 0.002);
       const dir = new V3(rel.x, rel.y, rel.z).normalize();
-      registerHit(e, { dir: new V3(dir.x, 0, dir.z).normalize(), part: c.part, speed: sp, src: 'fist', point: hit.q });
+      registerHit(e, { dir: new V3(dir.x, 0, dir.z).normalize(), part: c.part, speed: sp, src: 'fist', point: hit.q, seg: e.cols.indexOf(c) });
       h.passE = e; h.passT = 0.2; h.gOff.multiplyScalar(0.3); h.holdT = 0;
       const strong = clamp(0.55 + sp / 9, 0.6, 1);
       buzz(h, strong, 80); setTimeout(() => buzz(h, strong * 0.6, 45), 85);
@@ -2564,6 +2620,22 @@ function strikeContact(e, A) {
   const segs = [[A.pPrev, sFist, 0.06]];
   if (hasW) { segs.push([A.tPrev, sTip, A.type === 'bat' ? 0.05 : 0.025]); segs.push([sFist, sTip, A.type === 'bat' ? 0.04 : 0.02]); }
   const dirE = pX.set(e.pos.x - P.pos.x, 0, e.pos.z - P.pos.z).normalize(); // player -> enemy
+  // 0) your batons / staff block
+  for (const o of ALLPW) {
+    if (o.state !== 'hand' || !o.va) continue;
+    const holders = o.kind === 'staff' ? o.holders : [o.hand];
+    for (const [sa, sb, sr] of segs) {
+      if (segSegDist(sa, sb, o.va, o.vb, sC1, sC2) >= sr + o.r + 0.01) continue;
+      A.hit = true; const h0 = holders[0] || hands[1];
+      const parried = h0.wv.dot(dirE) > 1.4 || h0.wv.length() > 2.8;
+      for (const hh of holders) { buzz(hh, 1, 110); setTimeout(() => buzz(hh, 0.6, 50), 115); }
+      if (SET.staffMat === 'wood' && A.type !== 'knife') SFX.clack(); else SFX.clang();
+      const S = e.sprV, sh = A.type === 'jab' ? 8 : 9; S[sh] += 8; S[sh === 8 ? 14 : 15] += 6; e.freeze = 0.05;
+      if (parried) { stagger(e, 1.1); e.poise = 0; SFX.parry(); setLabel('PARRY', 1.1); slowMo(0.55, 0.3); e.push.x += dirE.x * 1.5; e.push.z += dirE.z * 1.5; if (SET.staffMat !== 'wood' && !e.weapon && crnd() < 0.35) boneHit(e, A.type === 'jab' ? 'armL' : 'armR', 40, { src: 'weapon', wtype: 'staff' }); }
+      else { A.t = Math.max(A.t, A.wu + A.sk); setLabel(o.kind === 'staff' ? 'STAFF BLOCK' : 'BATON BLOCK', 0.7); if (A.type === 'bat') hurt(2); P.dipV += 0.15; }
+      return;
+    }
+  }
   // 1) your arms / hands block
   for (const h of hands) {
     if (!h.has) continue;
@@ -2651,6 +2723,7 @@ function ik2(A, T, a, b, pole, outK) {
 function bodyUpdate(dt) {
   const vis = started && !P.dead;
   torso.visible = vis; for (const L of legs) { L.thigh.visible = L.shin.visible = L.knee.visible = L.boot.visible = vis; if (L.holster) L.holster.visible = vis; }
+  HOL_OK[0] = HOL_OK[1] = vis;
   if (!vis) return;
   const gy = -P.crouchOff + P.dip + BODY.rollDip; // roof surface in rig space
   const head = camLocal, eh = head.y - gy, by = ARM.bodyYaw;
@@ -2696,8 +2769,509 @@ function bodyUpdate(dt) {
     L.boot.position.copy(ankle); L.boot.quaternion.setFromAxisAngle(UP, by);
     if (L.holster) { L.holster.position.lerpVectors(hip, kn, 0.4).addScaledVector(_br, 0.09); L.holster.quaternion.copy(L.thigh.quaternion); }
   }
+  // baton holsters on both hips
+  for (const i of [0, 1]) {
+    const side = i === 0 ? -1 : 1;
+    bA.copy(hips).addScaledVector(_br, side * 0.205).addScaledVector(_bf, 0.03); bA.y -= 0.02;
+    HOLW[i].copy(bA).applyMatrix4(rig.matrixWorld);
+    bB.copy(_bf).multiplyScalar(0.38).add(bT.set(side * 0.12, -1, 0)).normalize();
+    HOLQ[i].copy(rig.quaternion).multiply(bQ.setFromUnitVectors(UP, bB));
+  }
 }
 
+
+
+/* =====================================================================
+   STAGE 3 — TWIN BATONS · BO STAFF · BONE BREAKS (X-RAY) · IMPACT AUDIO
+   ===================================================================== */
+const wA = new V3(), wB = new V3(), wC = new V3(), wD = new V3(), wE = new V3(), wF = new V3(), wG = new V3(), wH = new V3(), wQ = new QT(), wQ2 = new QT();
+const XQ = new QT().setFromAxisAngle(new V3(1, 0, 0), -Math.PI / 2); // +Y (weapon axis) -> -Z (hand forward)
+
+/* ---------- richer impact audio (layered + reverb send) ---------- */
+function fxIn() {
+  const C = AU.ctx; if (!C) return null;
+  if (!AU.verbIn) {
+    const conv = C.createConvolver(), len = Math.floor(C.sampleRate * 0.9), b = C.createBuffer(2, len, C.sampleRate);
+    for (let ch = 0; ch < 2; ch++) { const d = b.getChannelData(ch); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 2.6); }
+    conv.buffer = b; const g = C.createGain(); g.gain.value = 0.22; AU.verbIn = C.createGain(); AU.verbIn.connect(conv); conv.connect(g); g.connect(AU.master);
+  }
+  return AU.verbIn;
+}
+function Lz(vol, dur, type, f0, f1, q = 1, delay = 0, buf) {
+  const C = AU.ctx; if (!C) return; const t = C.currentTime + delay;
+  const s = C.createBufferSource(); s.buffer = buf || AU.noise; const f = C.createBiquadFilter(); f.type = type; f.frequency.setValueAtTime(f0, t); if (f1) f.frequency.exponentialRampToValueAtTime(f1, t + dur); f.Q.value = q;
+  const g = C.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol), t + Math.min(0.004, dur * 0.15)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.connect(f); f.connect(g); g.connect(AU.master); const v = fxIn(); if (v) g.connect(v); s.start(t, Math.random() * 1.5); s.stop(t + dur + 0.05);
+}
+function Tz(vol, dur, f0, f1, wave = 'sine', delay = 0) {
+  const C = AU.ctx; if (!C) return; const t = C.currentTime + delay;
+  const o = C.createOscillator(); o.type = wave; o.frequency.setValueAtTime(f0, t); if (f1) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  const g = C.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol), t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(AU.master); const v = fxIn(); if (v) g.connect(v); o.start(t); o.stop(t + dur + 0.05);
+}
+const rp = () => 0.88 + Math.random() * 0.24;
+Object.assign(SFX, {
+  punchBody(p) { const k = clamp(p / 25, 0.3, 1), r = rp(); Tz(0.95 * k, 0.17, 95 * r, 40); Lz(0.65 * k, 0.11, 'lowpass', 1500 * r, 280, 0.7); Lz(0.5 * k, 0.05, 'bandpass', 1050 * r, null, 1.8); Lz(0.28 * k, 0.025, 'highpass', 3600, null, 0.7); Lz(0.22 * k, 0.2, 'lowpass', 520, 140, 1); },
+  punchHead(p) { const k = clamp(p / 25, 0.3, 1), r = rp(); Tz(0.75 * k, 0.1, 150 * r, 70); Lz(0.55 * k, 0.06, 'bandpass', 1800 * r, 800, 2.2); Tz(0.4 * k, 0.04, 330 * r, 170, 'triangle'); Lz(0.4 * k, 0.02, 'highpass', 4600, null, 0.8); Lz(0.22 * k, 0.15, 'lowpass', 720, 200, 1); },
+  punch(d) { SFX.punchBody(d); },
+  wood(p) { const k = clamp(p / 25, 0.3, 1), r = rp(); Tz(0.55 * k, 0.06, 820 * r, 560, 'triangle'); Lz(0.65 * k, 0.05, 'bandpass', 2300 * r, null, 4.5); SFX.punchBody(p * 0.8); },
+  steel(p) { const k = clamp(p / 25, 0.3, 1), r = rp(); for (const f of [1180, 1630, 2270, 3120]) Tz(0.11 * k, 0.45 + Math.random() * 0.3, f * r, f * r * 0.985); Lz(0.55 * k, 0.03, 'highpass', 3200, null, 0.8); SFX.punchBody(p * 0.85); },
+  weighted(p) { const k = clamp(p / 25, 0.3, 1); Tz(1.0 * k, 0.24, 78, 32); SFX.steel(p * 0.6); SFX.crack(); },
+  clack() { const r = rp(); Tz(0.45, 0.05, 900 * r, 700, 'triangle'); Lz(0.55, 0.04, 'bandpass', 2600 * r, null, 5); },
+  clang() { const r = rp(); for (const f of [1450, 2210, 3050]) Tz(0.14, 0.6, f * r, f * r * 0.99); Lz(0.5, 0.03, 'highpass', 3500, null, 1); },
+  bonebreak() {
+    for (let i = 0; i < 10; i++) Lz(0.3 + Math.random() * 0.4, 0.006 + Math.random() * 0.012, 'bandpass', 1700 + Math.random() * 2800, null, 6, Math.random() * 0.08);
+    Lz(0.85, 0.035, 'highpass', 2400, null, 1); Tz(0.55, 0.12, 190, 60, 'square'); Tz(0.85, 0.28, 72, 30); Lz(0.35, 0.25, 'lowpass', 700, 150, 1, 0.02);
+  },
+  scream() {
+    const C = AU.ctx; if (!C) return; const t = C.currentTime + 0.05, o = C.createOscillator(), f = C.createBiquadFilter(), f2 = C.createBiquadFilter(), g = C.createGain(), vib = C.createOscillator(), vg = C.createGain();
+    o.type = 'sawtooth'; const b = CR(230, 300); o.frequency.setValueAtTime(b, t); o.frequency.linearRampToValueAtTime(b * 1.7, t + 0.18); o.frequency.linearRampToValueAtTime(b * 1.25, t + 0.85);
+    vib.frequency.value = 7; vg.gain.value = 9; vib.connect(vg); vg.connect(o.frequency);
+    f.type = 'bandpass'; f.frequency.value = CR(900, 1200); f.Q.value = 4; f2.type = 'bandpass'; f2.frequency.value = 2600; f2.Q.value = 6;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.2, t + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.95);
+    o.connect(f); o.connect(f2); f.connect(g); f2.connect(g); g.connect(AU.master); const v = fxIn(); if (v) g.connect(v);
+    o.start(t); vib.start(t); o.stop(t + 1); vib.stop(t + 1);
+  },
+  catchW() { Tz(0.5, 0.08, 210, 90); Lz(0.45, 0.05, 'bandpass', 1500, null, 2); },
+  combine() { Tz(0.32, 0.05, 1500, 1500, 'square'); Tz(0.25, 0.09, 950, 950, 'triangle', 0.045); Lz(0.35, 0.04, 'highpass', 4200, null, 1); Tz(0.4, 0.12, 120, 70, 'sine', 0.03); },
+  split() { Tz(0.25, 0.06, 950, 950, 'triangle'); Tz(0.3, 0.05, 1400, 1400, 'square', 0.04); Lz(0.3, 0.05, 'highpass', 3800, null, 1); },
+  recall() { Lz(0.25, 0.5, 'bandpass', 300, 2200, 2.5); Tz(0.12, 0.5, 400, 1200, 'sine'); },
+  clatter(m) { if (m === 'wood') { SFX.clack(); Tz(0.2, 0.05, 700, 500, 'triangle', 0.09); } else { SFX.clang(); } },
+  materialHit(p) { const m = SET.staffMat; if (m === 'steel') SFX.steel(p); else if (m === 'weighted') SFX.weighted(p); else SFX.wood(p); },
+});
+
+/* ---------- player weapons: two batons that join into a bo staff ---------- */
+const WMAT = {
+  wood: { color: 0x5c3b21, metal: 0.05, rough: 0.55, dmg: 1.0, push: 1.0, name: 'WOOD' },
+  steel: { color: 0x9aa3ad, metal: 0.9, rough: 0.26, dmg: 1.25, push: 1.15, name: 'STEEL' },
+  weighted: { color: 0x2b2e33, metal: 0.85, rough: 0.34, dmg: 1.5, push: 1.4, name: 'WEIGHTED' },
+};
+if (!WMAT[SET.staffMat]) SET.staffMat = 'wood';
+const pwMat = new THREE.MeshStandardMaterial({ color: 0x5c3b21, roughness: 0.55, metalness: 0.05, envMapIntensity: 0.9 });
+const pwGrip = new THREE.MeshStandardMaterial({ color: 0x131313, roughness: 0.85 });
+function applyWeaponMat() { const M = WMAT[SET.staffMat]; pwMat.color.setHex(M.color); pwMat.metalness = M.metal; pwMat.roughness = M.rough; pwMat.needsUpdate = true; }
+applyWeaponMat();
+const BAT_BUTT = -0.1, BAT_TIP = 0.52, STAFF_HALF = 0.8, BW_R = 0.026, ST_R = 0.03;
+function batonMesh() {
+  const g = new THREE.Group();
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.021, 0.026, BAT_TIP - BAT_BUTT - 0.12, 10), pwMat); shaft.position.y = (BAT_TIP + BAT_BUTT + 0.12) / 2; g.add(shaft);
+  const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.029, 0.029, 0.17, 10), pwGrip); grip.position.y = -0.005; g.add(grip);
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.031, 0.031, 0.025, 10), armStripeMat); cap.position.y = BAT_BUTT + 0.012; g.add(cap);
+  const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.023, 0.023, 0.03, 10), armStripeMat); tip.position.y = BAT_TIP - 0.015; g.add(tip);
+  g.traverse(o => o.frustumCulled = false); scene.add(g); return g;
+}
+function staffMesh() {
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, STAFF_HALF * 2, 12), pwMat));
+  for (const y of [-0.42, 0.42]) { const w = new THREE.Mesh(new THREE.CylinderGeometry(0.031, 0.031, 0.2, 12), pwGrip); w.position.y = y; g.add(w); }
+  for (const y of [-STAFF_HALF + 0.015, 0, STAFF_HALF - 0.015]) { const r = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.03, 12), armStripeMat); r.position.y = y; g.add(r); }
+  g.traverse(o => o.frustumCulled = false); scene.add(g); g.visible = false; return g;
+}
+function mkPW(kind, side) {
+  return { kind, side, mesh: kind === 'staff' ? staffMesh() : batonMesh(), state: kind === 'staff' ? 'off' : 'holster', hand: null, holders: [], s: [0, 0], lastSep: 0,
+    pos: new V3(), q: new QT(), vel: new V3(), spin: new V3(), a0: new V3(), b0: new V3(), a1: new V3(), b1: new V3(), init: false,
+    pass: null, passT: 0, owner: null, recallH: null, hitSet: new Set(), r: kind === 'staff' ? ST_R : BW_R, restT: 0 };
+}
+const BATONS = [mkPW('baton', 0), mkPW('baton', 1)], STAFF = mkPW('staff', -1);
+const ALLPW = [BATONS[0], BATONS[1], STAFF];
+const HOLW = [new V3(), new V3()], HOLQ = [new QT(), new QT()], HOL_OK = [false, false];
+for (const h of hands) { h.pw = null; h.trigWas = false; }
+
+function segOf(o, pos, q, outA, outB) {
+  const ax = wG.set(0, 1, 0).applyQuaternion(q);
+  if (o.kind === 'staff') { outA.copy(pos).addScaledVector(ax, -STAFF_HALF); outB.copy(pos).addScaledVector(ax, STAFF_HALF); }
+  else { outA.copy(pos).addScaledVector(ax, BAT_BUTT); outB.copy(pos).addScaledVector(ax, BAT_TIP); }
+}
+function handWorldPose(h, outP, outQ) { h.root.getWorldPosition(outP); h.root.getWorldQuaternion(outQ); return outP; }
+function attachBaton(b, h) {
+  b.state = 'hand'; b.hand = h; h.pw = b; b.init = false; b.vel.set(0, 0, 0); b.mesh.visible = true; buzz(h, 0.5, 40);
+}
+function drawBaton(i, h) { attachBaton(BATONS[i], h); SFX.split(); setLabel(BATONS[0].state === 'hand' && BATONS[1].state === 'hand' ? 'TWIN BATONS' : 'BATON', 0.8); }
+function holsterBaton(b) { if (b.hand) b.hand.pw = null; b.hand = null; b.state = 'holster'; b.init = false; SFX.clack(); }
+function staffAddHolder(h) {
+  const S = STAFF; if (S.holders.includes(h)) return;
+  if (h.pw && h.pw !== S) return;
+  const hp = handWorldPose(h, wA, wQ);
+  const ax = wB.set(0, 1, 0).applyQuaternion(S.q);
+  if (!S.holders.length) { S.s = [0, 0]; S.holders = [h]; S.s[0] = clamp(wC.subVectors(hp, S.pos).dot(ax), -0.7, 0.7); }
+  else { S.holders.push(h); S.s[1] = clamp(wC.subVectors(hp, S.pos).dot(ax), -0.75, 0.75); if (Math.abs(S.s[1] - S.s[0]) < 0.12) S.s[1] = S.s[0] + (S.s[1] >= S.s[0] ? 0.12 : -0.12); }
+  h.pw = S; S.state = 'hand'; S.mesh.visible = true; S.init = false; buzz(h, 0.5, 40);
+}
+function combineStaff() {
+  const L = BATONS[0].hand, R = BATONS[1].hand; if (!L || !R || L === R) return;
+  const pl = handWorldPose(L, wA, wQ).clone(), pr = handWorldPose(R, wB, wQ2).clone();
+  const U = wC.subVectors(pr, pl).normalize(), C = wD.lerpVectors(pl, pr, 0.5);
+  STAFF.pos.copy(C); STAFF.q.setFromUnitVectors(UP, U);
+  for (const b of BATONS) { b.state = 'staff'; b.hand.pw = null; b.hand = null; b.mesh.visible = false; }
+  STAFF.holders = [L, R]; STAFF.s = [pl.clone().sub(C).dot(U), pr.clone().sub(C).dot(U)]; L.pw = R.pw = STAFF; STAFF.state = 'hand'; STAFF.mesh.visible = true; STAFF.init = false; STAFF.lastSep = pl.distanceTo(pr);
+  SFX.combine(); setLabel('BO STAFF', 1); for (const h of [L, R]) { buzz(h, 1, 90); setTimeout(() => buzz(h, 0.6, 40), 100); }
+}
+function splitStaff() {
+  const [h0, h1] = STAFF.holders; if (!h0 || !h1) return;
+  STAFF.state = 'off'; STAFF.mesh.visible = false; STAFF.holders = []; h0.pw = h1.pw = null;
+  attachBaton(BATONS[0], h0); attachBaton(BATONS[1], h1); SFX.split(); setLabel('SPLIT', 0.8);
+  for (const h of [h0, h1]) buzz(h, 0.8, 60);
+}
+function releasePW(h) {
+  const o = h.pw; if (!o) return; h.needRe = true;
+  if (o.kind === 'staff' && o.holders.length === 2) {
+    const k = o.holders.indexOf(h), other = o.holders[1 - k], so = o.s[1 - k];
+    o.holders = [other]; o.s = [so, 0]; h.pw = null; return;
+  }
+  h.pw = null; o.holders = []; o.hand = null;
+  // holster if released at a hip
+  if (o.kind === 'baton') {
+    const hw = handWorldPose(h, wA, wQ);
+    for (const i of [o.side, 1 - o.side]) if (HOL_OK[i] && hw.distanceTo(HOLW[i]) < 0.3) { holsterBaton(o); return; }
+  }
+  const sp = h.wv.length();
+  o.state = 'flying'; o.vel.copy(h.wv).multiplyScalar(sp > 2.3 ? 1.35 : 1).add(P.vel); o.vel.clampLength(0, 20);
+  const ax = wB.set(0, 1, 0).applyQuaternion(o.q), perp = wC.crossVectors(ax, UP); if (perp.lengthSq() < 1e-4) perp.set(1, 0, 0); perp.normalize();
+  o.spin.copy(perp).multiplyScalar(sp > 2.3 ? CR(10, 16) * (Math.random() < 0.5 ? -1 : 1) : CR(-3, 3));
+  o.hitSet.clear(); o.restT = 0;
+  if (sp > 2.3) { SFX.whoosh(0.4); setLabel(o.kind === 'staff' ? 'STAFF THROW' : 'BATON THROW', 0.8); }
+}
+function startRecall(h) {
+  let best = null, bd = 1e9;
+  const hw = handWorldPose(h, wA, wQ);
+  for (const o of ALLPW) {
+    if (o.state !== 'flying' && o.state !== 'ground' && o.state !== 'enemy') continue;
+    let d = o.pos.distanceTo(hw); if (o.kind === 'baton' && o.side === h.i) d -= 3; // prefer this hand's own baton
+    if (d < bd) { bd = d; best = o; }
+  }
+  if (!best) return false;
+  if (best.state === 'enemy' && best.owner) { const e = best.owner; e.weapon = null; best.owner = null; flinch(e); setLabel('RECALL — DISARMED', 1); }
+  best.state = 'recall'; best.recallH = h; best.hitSet.clear(); best.vel.set(0, 0, 0); SFX.recall();
+  buzz(h, 0.4, 60); return true;
+}
+function tryPWGrab(h) {
+  const hw = handWorldPose(h, wA, wQ);
+  for (const i of [0, 1]) if (BATONS[i].state === 'holster' && HOL_OK[i] && hw.distanceTo(HOLW[i]) < 0.26) { drawBaton(i, h); return true; }
+  if (STAFF.state === 'hand' && STAFF.holders.length === 1 && STAFF.holders[0] !== h) {
+    segOf(STAFF, STAFF.pos, STAFF.q, wB, wC);
+    if (hw.distanceTo(closestPtSeg(hw, wB, wC, wD)) < 0.16) { staffAddHolder(h); SFX.clack(); setLabel('TWO-HANDED', 0.6); return true; }
+  }
+  for (const o of ALLPW) {
+    if (o.state !== 'ground' && o.state !== 'flying') continue;
+    segOf(o, o.pos, o.q, wB, wC);
+    if (hw.distanceTo(closestPtSeg(hw, wB, wC, wD)) < 0.2) {
+      if (o.kind === 'staff') { STAFF.state = 'hand'; staffAddHolder(h); } else attachBaton(o, h);
+      SFX.catchW(); return true;
+    }
+  }
+  return false;
+}
+
+/* ---------- weapon hits / pushing (solid like your hands) ---------- */
+const nearW = [];
+function nearEnemiesTo(p, r, out) {
+  out.length = 0;
+  for (const e of ENEMIES) { if (!e.root.visible || e.pos.distanceTo(p) > r) continue; if (!e.colOK) computeColliders(e); out.push(e); }
+  return out;
+}
+const sweepU = { baton: [0.3, 0.55, 0.8, 1.0], staff: [0, 0.12, 0.3, 0.7, 0.88, 1.0] };
+function weaponSweep(o, A0, B0, A1, B1, dt, list, minApproach) {
+  // full-length swept test: the whole stick, at 6 moments between last frame and this one
+  for (let t = 1; t <= 6; t++) {
+    const At = wD.lerpVectors(A0, A1, t / 6), Bt = wE.lerpVectors(B0, B1, t / 6);
+    for (const e of list) {
+      if (o.passT > 0 && o.pass === e) continue; if (o.hitSet.has(e)) continue;
+      for (const c of e.cols) {
+        const d = segSegDist(At, Bt, c.a, c.b, wF, wC);
+        if (d >= c.r + o.r) continue;
+        const L = At.distanceTo(Bt) || 1, u = clamp(wF.distanceTo(At) / L, 0, 1);
+        const v = wH.set(
+          ((A1.x - A0.x) * (1 - u) + (B1.x - B0.x) * u) / Math.max(dt, 1e-3),
+          ((A1.y - A0.y) * (1 - u) + (B1.y - B0.y) * u) / Math.max(dt, 1e-3),
+          ((A1.z - A0.z) * (1 - u) + (B1.z - B0.z) * u) / Math.max(dt, 1e-3)).sub(P.vel);
+        const n = wB.subVectors(wF, wC); if (n.lengthSq() < 1e-9) n.copy(v).negate(); n.normalize();
+        const appr = -v.dot(n);
+        if (appr > minApproach) return { e, c, q: wC.clone(), v: v.clone(), appr };
+      }
+    }
+  }
+  return null;
+}
+function weaponStrike(o, hit, holders, thrown) {
+  const { e, c, v, appr } = hit, M = WMAT[SET.staffMat];
+  const sp = Math.max(appr, v.length() * 0.7);
+  let dmg = o.kind === 'staff' ? clamp((sp - 1.8) * 5.5, 8, 36) : clamp((sp - 1.8) * 5, 6, 30);
+  if (thrown) dmg = (o.kind === 'staff' ? 18 : 12) + Math.min(10, sp * 0.6);
+  dmg *= M.dmg;
+  const dir = new V3(v.x, 0, v.z); if (dir.lengthSq() < 1e-6) dir.set(e.pos.x - P.pos.x, 0, e.pos.z - P.pos.z); dir.normalize();
+  const legSweep = (c.part === 'legL' || c.part === 'legR') && sp > 3;
+  registerHit(e, { seg: e.cols.indexOf(c), dir, part: c.part, speed: sp, src: 'weapon', wtype: o.kind, dmg, point: hit.q, limbMult: 0.8, push: M.push, knock: legSweep || (thrown && o.kind === 'staff' && c.part === 'head') });
+  if (legSweep && !e.dead) setLabel('LEG SWEEP', 1);
+  o.pass = e; o.passT = 0.2; o.hitSet.add(e);
+  o.blood = Math.min(1, (o.blood || 0) + 0.08);
+  for (const h of holders) { const s = clamp(0.55 + sp / 10, 0.6, 1); buzz(h, s, 90); setTimeout(() => buzz(h, s * 0.55, 45), 95); h.blood = Math.min(1, h.blood + 0.015); }
+}
+function heldWeaponUpdate(o, dt) {
+  // real pose from the hand(s)
+  if (o.kind === 'staff') {
+    const H = o.holders;
+    if (H.length === 2) {
+      const p0 = handWorldPose(H[0], wA, wQ), p1 = handWorldPose(H[1], wB, wQ2);
+      const sep = p0.distanceTo(p1), sepV = (sep - o.lastSep) / Math.max(dt, 1e-3); o.lastSep = sep;
+      if (sepV > 1.6 && sep > 0.62 && o.init) { splitStaff(); return; }
+      const U = wC.subVectors(p1, p0); if (U.lengthSq() < 1e-6) U.set(0, 1, 0); U.normalize(); if (o.s[1] < o.s[0]) U.negate();
+      o.pos.lerpVectors(p0, p1, 0.5).addScaledVector(U, -(o.s[0] + o.s[1]) / 2); o.q.setFromUnitVectors(UP, U);
+    } else if (H.length === 1) {
+      const p0 = handWorldPose(H[0], wA, wQ); o.q.copy(wQ).multiply(XQ);
+      const U = wC.set(0, 1, 0).applyQuaternion(o.q); o.pos.copy(p0).addScaledVector(U, -o.s[0]);
+    }
+  } else { handWorldPose(o.hand, o.pos, o.q); o.q.multiply(XQ); }
+  segOf(o, o.pos, o.q, o.a1, o.b1);
+  if (!o.init) { o.a0.copy(o.a1); o.b0.copy(o.b1); o.init = true; }
+  const holders = o.kind === 'staff' ? o.holders : [o.hand];
+  nearEnemiesTo(P.pos, 3.4, nearW);
+  o.passT -= dt;
+  // 1) swept strike
+  const hit = nearW.length ? weaponSweep(o, o.a0, o.b0, o.a1, o.b1, dt, nearW, 2.0) : null;
+  if (hit) weaponStrike(o, hit, holders, false);
+  // 2) solid: push the weapon (and your hands) out of bodies, shove what you press on
+  const off = wF.set(0, 0, 0); let touch = 0;
+  for (let it = 0; it < 3; it++) {
+    for (const e of nearW) {
+      if (o.passT > 0 && o.pass === e) continue;
+      for (const c of e.cols) {
+        const A = wD.copy(o.a1).add(off), B = wE.copy(o.b1).add(off);
+        const d = segSegDist(A, B, c.a, c.b, wA, wB), pen = c.r + o.r - d; if (pen <= 0) continue;
+        const n = wC.subVectors(wA, wB); if (n.lengthSq() < 1e-9) n.set(-headFwd.x, 0, -headFwd.z); n.normalize();
+        off.addScaledVector(n, pen);
+        if (it === 0) { pushPart(e, c.part, wH.copy(n).negate(), pen * WMAT[SET.staffMat].push, dt); touch = Math.max(touch, pen); }
+      }
+    }
+  }
+  if (off.length() > 0.4) off.set(0, 0, 0);
+  for (const h of holders) { h.gOff.copy(off); h.gW.copy(h.root.getWorldPosition(wA)).add(off); }
+  if (touch > 0) for (const h of holders) { h.pushBuzz -= dt; if (h.pushBuzz <= 0) { buzz(h, clamp(0.15 + touch * 6, 0.15, 0.6), 30); h.pushBuzz = 0.06; } }
+  o.va = o.a1.clone().add(off); o.vb = o.b1.clone().add(off);
+  o.a0.copy(o.a1); o.b0.copy(o.b1);
+  o.mesh.position.copy(o.pos).add(off); o.mesh.quaternion.copy(o.q);
+}
+function freeWeaponUpdate(o, dt) {
+  const prevA = wA.copy(o.a1), prevB = wB.copy(o.b1);
+  if (o.state === 'recall') {
+    const h = o.recallH; if (!h || !h.has || h.pw) { o.state = 'flying'; o.recallH = null; return; }
+    const hp = h.root.getWorldPosition(wC), to = wD.subVectors(hp, o.pos), d = to.length();
+    const sp = Math.min(18, 6 + (o.vel.length() + 30 * dt));
+    o.vel.copy(to).normalize().multiplyScalar(sp);
+    o.pos.addScaledVector(o.vel, Math.min(dt, d / Math.max(sp, 1e-3)));
+    h.root.getWorldQuaternion(wQ); wQ.multiply(XQ); o.q.slerp ? o.q.slerp(wQ, Math.min(1, dt * 10)) : o.q.copy(wQ);
+    if (d < 0.2) { // caught
+      o.recallH = null;
+      if (o.kind === 'staff') { o.holders = []; o.state = 'hand'; o.q.copy(wQ); o.pos.copy(hp); staffAddHolder(h); o.s = [0, 0]; }
+      else attachBaton(o, h);
+      SFX.catchW(); for (let i = 0; i < 2; i++) buzz(h, 0.9, 70); setLabel('CAUGHT', 0.6); return;
+    }
+  } else if (o.state === 'flying') {
+    o.vel.y -= 9.8 * dt; o.pos.addScaledVector(o.vel, dt);
+    const ang = o.spin.length(); if (ang > 1e-4) { wQ.setFromAxisAngle(wC.copy(o.spin).divideScalar(ang), ang * dt); o.q.premultiply ? o.q.premultiply(wQ) : o.q.copy(wQ.multiply(o.q)); }
+    o.restT += dt;
+  }
+  segOf(o, o.pos, o.q, o.a1, o.b1);
+  if (!o.init) { prevA.copy(o.a1); prevB.copy(o.b1); o.init = true; }
+  // hit enemies on the way
+  const list = nearEnemiesTo(o.pos, 2.5, nearW);
+  if (list.length && o.vel.length() > 3) { const hit = weaponSweep(o, prevA, prevB, o.a1, o.b1, dt, list, 2.5); if (hit) { weaponStrike(o, hit, o.state === 'recall' ? [o.recallH] : [], true); if (o.state === 'flying') { o.vel.multiplyScalar(-0.25); o.vel.y = 1.5; o.spin.multiplyScalar(0.5); } } }
+  if (o.state === 'flying') {
+    // world collisions: walls bounce it back, floors catch it
+    for (const p of [o.a1, o.b1, o.pos]) {
+      query(EQ, p.x - 0.03, p.y - 0.03, p.z - 0.03, p.x + 0.03, p.y + 0.03, p.z + 0.03);
+      let wall = false; for (const b of EQ) if (b.y1 > p.y + 0.12) { wall = true; break; }
+      if (wall) { o.pos.x -= o.vel.x * dt * 1.5; o.pos.z -= o.vel.z * dt * 1.5; o.vel.x *= -0.3; o.vel.z *= -0.3; o.spin.multiplyScalar(0.5); if (o.restT > 0.05) SFX.clatter(SET.staffMat); segOf(o, o.pos, o.q, o.a1, o.b1); break; }
+    }
+    const gb = groundBelow(o.pos.x, o.pos.z, o.pos.y + 0.6), gy = gb ? gb.y1 : -60;
+    const low = Math.min(o.a1.y, o.b1.y, o.pos.y);
+    if (o.vel.y <= 0 && low <= gy + 0.03) {
+      if (o.vel.length() > 4) { o.vel.y = Math.abs(o.vel.y) * 0.25; o.vel.x *= 0.5; o.vel.z *= 0.5; o.spin.multiplyScalar(0.4); o.pos.y += (gy + 0.03 - low); SFX.clatter(SET.staffMat); }
+      else { o.state = 'ground'; o.vel.set(0, 0, 0); const yaw = CR(0, 6.28); o.q.setFromAxisAngle(new V3(Math.cos(yaw), 0, Math.sin(yaw)), Math.PI / 2); o.pos.y = gy + 0.03; SFX.clatter(SET.staffMat); }
+      segOf(o, o.pos, o.q, o.a1, o.b1);
+    }
+    if (o.restT > 8) { o.state = 'ground'; o.vel.set(0, 0, 0); o.pos.y = gy + 0.03; }
+    if (o.pos.y < -30) { o.state = 'ground'; o.vel.set(0, 0, 0); }
+  }
+  o.mesh.position.copy(o.pos); o.mesh.quaternion.copy(o.q); o.va = o.a1; o.vb = o.b1;
+}
+function pwUpdate(dt) {
+  // triggers: recall to an empty hand
+  for (const h of hands) {
+    const tr = h.trigV > 0.75;
+    if (tr && !h.trigWas && !MENU.open && !h.pw && !h.weapon && !h.grabbing && !h.holdE && h.has) startRecall(h);
+    h.trigWas = tr;
+  }
+  // join batons: point the tips at each other and touch them
+  if (BATONS[0].state === 'hand' && BATONS[1].state === 'hand' && BATONS[0].hand !== BATONS[1].hand && BATONS[0].va && BATONS[1].va) {
+    const d = BATONS[0].vb.distanceTo(BATONS[1].vb);
+    const a0 = wA.subVectors(BATONS[0].vb, BATONS[0].va).normalize(), a1 = wB.subVectors(BATONS[1].vb, BATONS[1].va).normalize();
+    if (d < 0.13 && a0.dot(a1) < -0.55) combineStaff();
+  }
+  for (const o of ALLPW) {
+    if (o.state === 'hand') heldWeaponUpdate(o, dt);
+    else if (o.state === 'flying' || o.state === 'recall') freeWeaponUpdate(o, dt);
+    else if (o.state === 'holster') {
+      const i = o.side; o.mesh.visible = HOL_OK[i] && started && !P.dead; o.va = null;
+      if (HOL_OK[i]) { o.pos.copy(HOLW[i]); o.q.copy(HOLQ[i]); o.mesh.position.copy(o.pos); o.mesh.quaternion.copy(o.q); }
+    } else if (o.state === 'enemy' && o.owner) {
+      const e = o.owner; e.J.haR.localToWorld(o.pos.set(0, -0.06, 0.01)); e.J.haR.getWorldQuaternion(o.q); o.q.multiply(wQ.setFromAxisAngle(new V3(1, 0, 0), 1.95));
+      o.mesh.position.copy(o.pos); o.mesh.quaternion.copy(o.q); o.va = null;
+    } else if (o.state === 'ground') { o.va = null; segOf(o, o.pos, o.q, o.a1, o.b1); }
+  }
+}
+// enemies can pick up loose weapons (including your batons)
+function looseWeaponNear(e, r) {
+  let best = null, bd = r;
+  for (const w of WEAPONS) if (w.state === 'free' && w.rest) { const d = w.mesh.position.distanceTo(e.pos); if (d < bd && Math.abs(w.mesh.position.y - e.pos.y) < 0.6) { bd = d; best = { w }; } }
+  for (const o of BATONS) if (o.state === 'ground') { const d = o.pos.distanceTo(e.pos); if (d < bd && Math.abs(o.pos.y - e.pos.y) < 0.6) { bd = d; best = { pw: o }; } }
+  return best;
+}
+function enemyTakeLoose(e, L) {
+  if (L.w) { const w = L.w; scene.remove(w.mesh); e.J.haR.add(w.mesh); w.mesh.position.set(0, -0.06, 0.01); w.mesh.rotation.set(w.type === 'bat' ? 1.95 : 1.7, 0, 0); w.state = 'enemy'; w.owner = e; w.rest = false; e.weapon = w; }
+  else { const o = L.pw; o.state = 'enemy'; o.owner = e; e.weapon = { type: 'bat', mesh: o.mesh, pw: o }; }
+  SFX.grunt(1.1, 0.15); setLabel('HE GRABBED A WEAPON', 1);
+}
+
+/* ---------- bone breaking + X-ray flash ---------- */
+function fleeSpot(e) {
+  let best = null, bs = -1e9;
+  for (let k = 0; k < 12; k++) {
+    const a = k / 12 * Math.PI * 2 + CR(-0.2, 0.2), r = CR(3, 7);
+    const x = e.pos.x + Math.cos(a) * r, z = e.pos.z + Math.sin(a) * r;
+    const gb = groundBelow(x, z, e.pos.y + 0.45); if (!gb || Math.abs(gb.y1 - e.pos.y) > 0.45) continue;
+    const mx = (x + e.pos.x) / 2, mz = (z + e.pos.z) / 2, gm = groundBelow(mx, mz, e.pos.y + 0.45); if (!gm || Math.abs(gm.y1 - e.pos.y) > 0.45) continue;
+    if (!freeAt(x, gb.y1 + 0.02, z, 1.7, 0.3)) continue;
+    const sc = Math.hypot(x - P.pos.x, z - P.pos.z) - r * 0.15;
+    if (sc > bs) { bs = sc; best = new V3(x, gb.y1, z); }
+  }
+  return best;
+}
+
+const BONE_HP0 = 1;
+const BONE_NAMES = { skull: 'SKULL', ribs: 'RIBS', armL: 'LEFT ARM', armR: 'RIGHT ARM', legL: 'LEFT LEG', legR: 'RIGHT LEG' };
+function boneOf(part) { return part === 'head' ? 'skull' : (part === 'chest' || part === 'belly') ? 'ribs' : part; }
+function boneHit(e, part, dmg, H) {
+  if (!e.bones) return;
+  const bone = boneOf(part); if (!(bone in e.bones) || e.broken[bone]) return;
+  let k = H.src === 'weapon' ? (H.wtype === 'knife' ? 0.4 : 1.35) : H.src === 'kick' ? 1.2 : H.src === 'slam' ? 1.5 : 0.7;
+  if (part === 'belly') k *= 0.6;
+  e.bones[bone] -= dmg * k;
+  if (e.bones[bone] <= 0) breakBone(e, bone, H.dir, H.seg);
+}
+const SEG_KIND = { 3: 'upper', 4: 'lower', 5: 'lower', 6: 'upper', 7: 'lower', 8: 'lower', 9: 'upper', 10: 'lower', 11: 'upper', 12: 'lower' };
+const CLUTCH = {
+  'armR-upper': { L: [0.25, 0.8, 1.14, -1.63] }, 'armR-lower': { L: [-0.33, 0.8, 0.8, -0.75] },
+  'armL-upper': { R: [0.25, -0.8, -1.14, -1.63] }, 'armL-lower': { R: [-0.33, -0.8, -0.8, -0.75] },
+  'ribs': { L: [0.35, 0.4, 0.04, -2.09], R: [0.35, -0.4, -0.04, -2.09] },
+  'legR-upper': { R: [-0.67, -0.73, -0.02, -0.29], hunch: 1 }, 'legR-lower': { R: [-0.82, -0.89, -0.04, -0.15], hunch: 1 },
+  'legL-upper': { L: [-0.67, 0.73, 0.02, -0.29], hunch: 1 }, 'legL-lower': { L: [-0.82, 0.89, 0.04, -0.15], hunch: 1 },
+};
+const HURT_BARK = {
+  armL: ["My arm! MY ARM!", "He broke my arm!", "Ahh — I'm out, I'm out!"], armR: ["My arm! MY ARM!", "He snapped it — he snapped my arm!", "I'm done! I'm done!"],
+  legL: ["My leg! I can't — my leg!", "Get me outta here!"], legR: ["My leg! I can't — my leg!", "Get me outta here!"],
+  ribs: ["My ribs... can't breathe...", "Ahh — my ribs!"],
+};
+function pickClutch(e) {
+  // most recent injury whose clutching hand still works
+  for (const k of (e.injOrder || []).slice().reverse()) {
+    const key = (k === 'ribs') ? 'ribs' : k + '-' + (e.breakSeg[k] || 'lower'), C = CLUTCH[key]; if (!C) continue;
+    const okL = C.L && !e.broken.armL, okR = C.R && !e.broken.armR;
+    if (okL || okR) return { key, L: okL ? C.L : null, R: okR ? C.R : null, hunch: !!C.hunch };
+  }
+  return null;
+}
+function breakBone(e, bone, dir, seg) {
+  e.broken[bone] = true;
+  if (!e.breakSeg) e.breakSeg = {}; e.breakSeg[bone] = SEG_KIND[seg] || (bone === 'ribs' ? 'upper' : 'lower');
+  if (bone !== 'skull') { e.injured = true; (e.injOrder = e.injOrder || []).push(bone); e.clutch = pickClutch(e); e.wantAtk = false; e.atk = null; e.flash = 0; e.fleeTgt = null; e.painT = 0.8;
+    setTimeout(() => { if (!e.dead) say('THUG: ' + pick(HURT_BARK[bone]), 2.2); }, 500); }
+  SFX.bonebreak(); if (bone !== 'skull') setTimeout(SFX.scream, 80);
+  spawnXray(e, bone); slowMo(0.3, 0.42);
+  setLabel('BONE BROKEN — ' + BONE_NAMES[bone], 1.8);
+  for (const h of hands) { buzz(h, 1, 140); setTimeout(() => buzz(h, 0.8, 90), 150); }
+  if (bone === 'skull') { e.hp = Math.min(e.hp, 0); }
+  if (bone === 'ribs') { e.maxPoise = 14; e.poise = Math.min(e.poise, 14); }
+  if (bone === 'armR' && e.weapon) dropEnemyWeapon(e);
+  if ((bone === 'legL' || bone === 'legR') && !e.dead && e.state !== 'down') { e.legBreakKnock = true; }
+}
+const XR = [];
+function xrMats() {
+  const mk = (c, o) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, side: THREE.DoubleSide });
+  return { flesh: mk(0x2a78ff), bone: mk(0xe6f6ff), crack: mk(0xff2236) };
+}
+function xrAdd(g, geo, mat, x, y, z, rx = 0, rz = 0) { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, 0, rz); m.renderOrder = 1001; m.frustumCulled = false; g.add(m); return m; }
+function spawnXray(e, bone) {
+  const M = xrMats(), g = new THREE.Group(); g.renderOrder = 1001; scene.add(g);
+  const s = e.sc;
+  if (bone === 'skull') {
+    xrAdd(g, new THREE.SphereGeometry(0.15 * s, 16, 12), M.flesh, 0, 0, 0);
+    const sk = new THREE.SphereGeometry(0.1 * s, 16, 12); sk.scale(0.92, 1.05, 1.1); xrAdd(g, sk, M.bone, 0, 0.01, 0);
+    xrAdd(g, new THREE.BoxGeometry(0.11 * s, 0.035 * s, 0.07 * s), M.bone, 0, -0.085 * s, 0.045 * s);
+    for (let i = 0; i < 5; i++) xrAdd(g, new THREE.BoxGeometry(0.006, 0.05 * s, 0.006), M.crack, -0.04 * s + i * 0.02 * s, 0.075 * s + (i % 2) * 0.012, 0.06 * s, 0, (i % 2 ? 0.7 : -0.7));
+  } else if (bone === 'ribs') {
+    const fl = new THREE.CapsuleGeometry(0.17 * s, 0.2 * s, 4, 12); fl.scale(1.3, 1, 0.8); xrAdd(g, fl, M.flesh, 0, 0, 0);
+    xrAdd(g, new THREE.CylinderGeometry(0.014 * s, 0.014 * s, 0.42 * s, 8), M.bone, 0, 0, -0.1 * s);
+    for (let i = 0; i < 6; i++) {
+      const y = -0.15 * s + i * 0.06 * s, broken = i === 2 || i === 3;
+      const r = new THREE.TorusGeometry(0.15 * s, 0.007 * s, 4, 18, Math.PI * 1.35); r.rotateX(Math.PI / 2); r.rotateY(Math.PI * 0.82); r.scale(1.25, 1, 0.85);
+      const m = xrAdd(g, r, broken ? M.crack : M.bone, broken ? 0.012 : 0, y, broken ? 0.012 : 0);
+    }
+  } else {
+    xrAdd(g, new THREE.CylinderGeometry(0.075 * s, 0.065 * s, 1, 12), M.flesh, 0, 0.5, 0).userData.len = true;
+    const h1 = xrAdd(g, new THREE.CylinderGeometry(0.017 * s, 0.017 * s, 1, 8), M.bone, 0, 0.24, 0, 0, 0.08); h1.userData.half = 0;
+    const h2 = xrAdd(g, new THREE.CylinderGeometry(0.017 * s, 0.017 * s, 1, 8), M.bone, 0.014, 0.76, 0, 0, -0.1); h2.userData.half = 1;
+    xrAdd(g, new THREE.SphereGeometry(0.028 * s, 10, 8), M.bone, 0, 0.02, 0).userData.knob = 0;
+    xrAdd(g, new THREE.SphereGeometry(0.026 * s, 10, 8), M.bone, 0.01, 0.98, 0).userData.knob = 1;
+    const cr = xrAdd(g, new THREE.TorusGeometry(0.026 * s, 0.007, 6, 14), M.crack, 0.006, 0.5, 0, Math.PI / 2); cr.userData.crack = true;
+    for (let i = 0; i < 3; i++) { const sh = xrAdd(g, new THREE.ConeGeometry(0.008, 0.04, 4), M.crack, CR(-0.03, 0.03), 0.5 + CR(-0.03, 0.03), CR(-0.02, 0.02), CR(-1, 1), CR(-1, 1)); sh.userData.shard = true; }
+  }
+  XR.push({ e, bone, g, M, t: 0 });
+}
+function limbEnds(e, bone, A, B) {
+  const J = e.J;
+  const up = e.breakSeg && e.breakSeg[bone] === 'upper';
+  if (bone === 'armL') { (up ? J.shL : J.elL).localToWorld(A.set(0, 0, 0)); (up ? J.elL : J.haL).localToWorld(B.set(0, 0, 0)); }
+  else if (bone === 'armR') { (up ? J.shR : J.elR).localToWorld(A.set(0, 0, 0)); (up ? J.elR : J.haR).localToWorld(B.set(0, 0, 0)); }
+  else if (bone === 'legL') { (up ? J.thL : J.knL).localToWorld(A.set(0, 0, 0)); (up ? J.knL : J.ftL).localToWorld(B.set(0, 0, 0)); }
+  else { (up ? J.thR : J.knR).localToWorld(A.set(0, 0, 0)); (up ? J.knR : J.ftR).localToWorld(B.set(0, 0, 0)); }
+}
+function xrayUpdate(dt) {
+  for (let i = XR.length - 1; i >= 0; i--) {
+    const X = XR[i]; X.t += dt; const t = X.t;
+    const k = t < 0.05 ? t / 0.05 : t < 0.6 ? 1 : Math.max(0, 1 - (t - 0.6) / 0.45);
+    const flick = t < 0.6 ? 0.85 + 0.15 * Math.sin(t * 60) : 1;
+    X.M.flesh.opacity = 0.32 * k * flick; X.M.bone.opacity = 0.95 * k * flick; X.M.crack.opacity = k;
+    const e = X.e, g = X.g, pulse = 1 + Math.max(0, 0.18 - t * 0.6);
+    if (X.bone === 'skull') { g.position.copy(e.headP); e.J.head.getWorldQuaternion(g.quaternion); g.scale.setScalar(pulse); }
+    else if (X.bone === 'ribs') { g.position.copy(e.chestP); e.J.chest.getWorldQuaternion(g.quaternion); g.scale.setScalar(pulse); }
+    else {
+      limbEnds(e, X.bone, wA, wB); const L = Math.max(0.05, wA.distanceTo(wB));
+      g.position.copy(wA); g.quaternion.setFromUnitVectors(UP, wC.subVectors(wB, wA).normalize());
+      const sep = Math.min(0.02, t * 0.15);
+      for (const m of g.children) {
+        const u = m.userData;
+        if (u.len) { m.scale.set(pulse, L, pulse); m.position.y = L / 2; }
+        else if (u.half === 0) { m.scale.set(1, L * 0.46, 1); m.position.set(0, L * 0.24 - sep, 0); }
+        else if (u.half === 1) { m.scale.set(1, L * 0.46, 1); m.position.set(0.014 + sep * 0.6, L * 0.76 + sep, 0); }
+        else if (u.knob === 0) m.position.y = 0.01;
+        else if (u.knob === 1) m.position.y = L - 0.01;
+        else if (u.crack) m.position.y = L / 2;
+        else if (u.shard) m.position.y = L / 2 + (m.position.y - Math.floor(m.position.y)) * 0 + 0;
+      }
+    }
+    if (t > 1.05) { scene.remove(X.g); X.g.traverse(o => o.geometry && o.geometry.dispose()); for (const m of Object.values(X.M)) m.dispose(); XR.splice(i, 1); }
+  }
+}
+
+/* ---------- desktop test keys for weapons ---------- */
+addEventListener('keydown', ev => {
+  if (!desktop || !started) return;
+  if (ev.code === 'Digit1') { for (const i of [0, 1]) { const b = BATONS[i]; if (b.state === 'holster') attachBaton(b, hands[i]); else if (b.state === 'hand') holsterBaton(b); } SFX.split(); }
+  if (ev.code === 'Digit2') { if (STAFF.state === 'hand' && STAFF.holders.length === 2) splitStaff(); else if (BATONS[0].state === 'hand' && BATONS[1].state === 'hand') combineStaff(); }
+  if (ev.code === 'Digit3') { const h = hands[1]; if (h.pw) { h.wv.copy(headFwd).multiplyScalar(9).add(new V3(0, 2, 0)); releasePW(h); } }
+  if (ev.code === 'Digit4') { startRecall(hands[1]) || startRecall(hands[0]); }
+  if (ev.code === 'Digit5') { const order = ['wood', 'steel', 'weighted']; SET.staffMat = order[(order.indexOf(SET.staffMat) + 1) % 3]; applyWeaponMat(); saveSet(); setLabel(WMAT[SET.staffMat].name, 1); }
+});
 
 /* ---------------- HEIGHT CALIBRATION (player + enemies scale to you) ---------------- */
 const EYE_RATIO = 0.936, ENEMY_NOMINAL_H = 1.82;
@@ -2824,6 +3398,7 @@ function loop(t, frame) {
   prevCam.copy(camLocal);
   updateRig();
   if (started) handContacts(dt);
+  if (started) pwUpdate(dt);
   handVisuals();
   armsUpdate(dt);
   bodyUpdate(dt);
