@@ -1461,6 +1461,11 @@ PO.BAT_S = mkPose({ chest: [0.2, -0.75, 0], hips: [0, -0.1, 0], spine: [0.2, 0, 
 PO.KN_W = mkPose({ chest: [0.05, 0.35, 0], shR: [0.35, 0, 0.3], elR: [-1.5, 0, 0], shL: [-0.9, 0, -0.2], elL: [-1.6, 0, 0] }, PO.GUARD);
 PO.KN_S = mkPose({ chest: [0.16, -0.35, 0], spine: [0.18, 0, 0], shR: [-1.4, 0, 0.08], elR: [-0.12, 0, 0], shL: [-0.7, 0, -0.2], elL: [-1.4, 0, 0], hz: 0.22, hy: -0.12 }, PO.GUARD);
 PO.FLINCH = mkPose({ spine: [0.3, 0, 0], head: [0.35, 0, 0], shL: [-1.2, 0.35, -0.05], elL: [-2.4, 0, 0], shR: [-1.2, -0.35, 0.05], elR: [-2.4, 0, 0], hy: -0.13 }, PO.GUARD);
+PO.R_HEAD = mkPose({ spine: [-0.18, 0, 0], chest: [-0.28, 0, 0], neck: [-0.35, 0, 0], head: [-0.6, 0, 0.1], shL: [-0.25, 0, -0.8], elL: [-0.8, 0, 0], shR: [-0.35, 0, 0.7], elR: [-1.0, 0, 0], thL: [-0.05, 0, -0.1], knL: [0.2, 0, 0], thR: [0.35, 0, 0.1], knR: [0.5, 0, 0], hy: -0.05, hz: -0.08 });
+PO.R_HEADF = mkPose({ spine: [0.35, 0, 0], chest: [0.2, 0, 0], neck: [0.3, 0, 0], head: [0.6, 0, 0], shL: [-0.6, 0, -0.4], elL: [-0.6, 0, 0], shR: [-0.6, 0, 0.4], elR: [-0.6, 0, 0], knL: [0.4, 0, 0], knR: [0.4, 0, 0], hy: -0.1, hz: 0.08 });
+PO.R_BODY = mkPose({ spine: [0.6, 0, 0], chest: [0.35, 0, 0], neck: [0.1, 0, 0], head: [0.3, 0, 0], shL: [-0.75, 0.2, 0.35], elL: [-1.9, 0, 0], shR: [-0.75, -0.2, -0.35], elR: [-1.9, 0, 0], thL: [-0.35, 0, -0.1], knL: [0.65, 0, 0], thR: [0.1, 0, 0.1], knR: [0.6, 0, 0], hy: -0.16, hz: -0.05 });
+PO.R_TWR = mkPose({ chest: [0, 0.75, -0.15], spine: [0, 0.25, -0.12], neck: [0, 0.3, 0], head: [-0.1, 0.75, -0.35], shL: [-0.6, 0, -0.4], elL: [-1.4, 0, 0], shR: [-0.3, 0, 1.1], elR: [-0.5, 0, 0], thL: [-0.15, 0, -0.2], knL: [0.35, 0, 0], thR: [0.1, 0, 0.2], knR: [0.4, 0, 0], hy: -0.08 });
+PO.R_TWL = mkPose({ chest: [0, -0.75, 0.15], spine: [0, -0.25, 0.12], neck: [0, -0.3, 0], head: [-0.1, -0.75, 0.35], shL: [-0.3, 0, -1.1], elL: [-0.5, 0, 0], shR: [-0.6, 0, 0.4], elR: [-1.4, 0, 0], thL: [-0.1, 0, -0.2], knL: [0.4, 0, 0], thR: [-0.15, 0, 0.2], knR: [0.35, 0, 0], hy: -0.08 });
 PO.STAGGER = mkPose({ spine: [-0.22, 0, 0], chest: [-0.12, 0, 0], head: [-0.3, 0, 0.1], shL: [-0.35, 0, -0.65], elL: [-0.7, 0, 0], shR: [-0.25, 0, 0.75], elR: [-0.5, 0, 0], thL: [-0.2, 0, -0.1], knL: [0.35, 0, 0], thR: [0.3, 0, 0.08], knR: [0.45, 0, 0], hy: -0.1 });
 PO.STUN = mkPose({ spine: [0.22, 0, 0], chest: [0.1, 0, 0], head: [0.45, 0, 0.15], shL: [0.05, 0, -0.18], elL: [-0.35, 0, 0], shR: [0.1, 0, 0.2], elR: [-0.3, 0, 0], thL: [-0.15, 0, -0.1], knL: [0.35, 0, 0], thR: [-0.05, 0, 0.1], knR: [0.3, 0, 0], hy: -0.1 });
 PO.HELD = mkPose({ spine: [-0.18, 0, 0], chest: [-0.1, 0, 0], head: [-0.15, 0, 0], shL: [-1.45, 0, 0.35], elL: [-0.9, 0, 0], shR: [-1.45, 0, -0.35], elR: [-0.9, 0, 0], thL: [-0.2, 0, 0], knL: [0.4, 0, 0], thR: [0.15, 0, 0], knR: [0.4, 0, 0], hy: -0.12 });
@@ -1570,7 +1575,7 @@ function makeEnemy(x, y, z, opt = {}) {
   }
   const e = {
     root, J, mats, sc, scVar, halo, pos: new V3(x, y, z), yaw: CR(0, 6.28), yawT: 0, vel: new V3(), push: new V3(), hp: 100, poise: 30, maxPoise: 30,
-    state: 'idle', st: 0, aware: false, gang: opt.gang || null, home: new V3(x, y, z), cur: new Float32Array(PO.REL), tgt: new Float32Array(PO.REL),
+    state: 'idle', st: 0, aware: false, gang: opt.gang || null, home: new V3(x, y, z), cur: new Float32Array(PO.REL), curV: new Float32Array(PLEN), yawV: 0, react: null, combo: 0, dodgeCd: 0, tgt: new Float32Array(PO.REL),
     spr: new Float32Array(18), sprV: new Float32Array(18), ph: CR(0, 6), atk: null, atkCd: CR(1, 2.5), wantAtk: false, slotAng: CR(0, 6.28), circ: crnd() < 0.5 ? -1 : 1,
     freeze: 0, flash: 0, hitCd: [0, 0], weapon: null, clip: null, clipT: 0, clipStart: new Float32Array(PLEN), drift: new V3(), lieT: 0, stunT: 0, stunned: false,
     holdT: 0, holdOff: new V3(), slamCd: 0, slams: 0, tripCd: 0, dead: false, deadT: 0, idx: ENEMIES.length, smoke: crnd() < 0.3, lv: new V3(), thrownMax: 0,
@@ -1683,7 +1688,9 @@ function emove(e, dx, dz, allowFall) {
 function faceTo(e, x, z, rate, dt) {
   e.yawT = Math.atan2(x - e.pos.x, z - e.pos.z);
   let d = e.yawT - e.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
-  e.yaw += clamp(d, -rate * dt, rate * dt);
+  const k = rate * rate * 1.8, c = 2 * Math.sqrt(k) * 0.9;
+  e.yawV += (k * d - c * e.yawV) * dt; e.yawV = clamp(e.yawV, -rate * 1.7, rate * 1.7);
+  e.yaw += e.yawV * dt;
 }
 function localDir(e, d, out) { const c = Math.cos(e.yaw), s = Math.sin(e.yaw); return out.set(d.x * c - d.z * s, d.y, d.x * s + d.z * c); }
 function eFwd(e, out) { return out.set(Math.sin(e.yaw), 0, Math.cos(e.yaw)); }
@@ -1748,13 +1755,21 @@ function registerHit(e, H) {
   e.hp -= dmg; e.poise -= dmg * (limb ? 0.6 : 1.25); e.st = Math.min(e.st, 0);
   alertGang(e);
   // impact feel
-  e.freeze = clamp(dmg * 0.0035, 0.03, 0.09);
-  const m = clamp(dmg / 14, 0.5, 2.3), dl = localDir(e, dir, cC), S = e.sprV;
+  e.freeze = clamp(dmg * 0.0012, 0.012, 0.035);
+  const spf = H.speed ? clamp(0.75 + H.speed / 10, 0.8, 1.6) : 1;
+  const m = clamp(dmg / 14, 0.5, 2.3) * spf, dl = localDir(e, dir, cC), S = e.sprV;
+  if (!downed && !limb && e.state !== 'held') {
+    let pose;
+    if (Math.abs(dl.x) > Math.abs(dl.z) * 0.85) pose = dl.x > 0 ? PO.R_TWR : PO.R_TWL;
+    else if (part === 'head') pose = dl.z < 0 ? PO.R_HEAD : PO.R_HEADF;
+    else pose = dl.z < 0 ? PO.R_BODY : PO.R_HEADF;
+    e.react = { pose, t: 0, dur: 0.32 + clamp(dmg / 40, 0, 0.38), amt: clamp(0.45 + dmg / 30 + (H.speed || 0) / 16, 0.5, 1) };
+  }
   if (limb) { if (part === 'armL') { S[8] += -dl.z * 6 * m; S[11] += dl.x * 5 * m; S[14] += -dl.z * 4 * m; } else if (part === 'armR') { S[9] += -dl.z * 6 * m; S[12] += dl.x * 5 * m; S[15] += -dl.z * 4 * m; } else if (part === 'legL') S[16] += -dl.z * 5 * m; else S[17] += -dl.z * 5 * m; S[0] += dl.z * 1.2 * m; }
   else if (part === 'head') { S[0] += dl.z * 6.5 * m; S[1] += dl.x * 7 * m; S[2] += -dl.x * 4 * m; S[3] += dl.z * 2.2 * m; S[4] += dl.x * 2.2 * m; S[13] += dl.z * 2 * m; }
   else { S[6] += -dl.z * 5 * m; S[0] += -dl.z * 2.5 * m; S[3] += -dl.z * 2 * m; S[4] += dl.x * 3 * m; S[7] += dl.x * 2 * m; }
   S[10] -= 0.35 * m; S[8] += CR(-1, 1) * 2.5 * m; S[9] += CR(-1, 1) * 2.5 * m; S[11] -= 1.6 * m; S[12] += 1.6 * m;
-  if (!downed) { const pm = H.push || 1; e.push.x += dir.x * clamp(0.45 + dmg * 0.05, 0.45, 2.2) * pm; e.push.z += dir.z * clamp(0.45 + dmg * 0.05, 0.45, 2.2) * pm; }
+  if (!downed) { const pm = (H.push || 1) * (limb ? 0.5 : 1); const pv = clamp(0.8 + dmg * 0.065, 0.8, 2.4) * pm; e.push.x += dir.x * pv; e.push.z += dir.z * pv; }
   // blood
   const bp = H.point || (part === 'head' ? e.headP : e.chestP);
   spawnBlood(bp, cD.set(dir.x, 0.6, dir.z), Math.round(clamp(dmg * (part === 'head' ? 0.7 : 0.4), 3, 26)), 2 + dmg * 0.05);
@@ -1786,9 +1801,11 @@ const ATK = {
   knife: { W: PO.KN_W, S: PO.KN_S, wu: 0.42, sk: 0.1, rc: 0.45, reach: 1.18, dmg: 15, blk: 3 },
 };
 function tokensUsed() { let n = 0; for (const o of ENEMIES) if (!o.dead && (o.state === 'attack' || o.wantAtk)) n++; return n; }
-function startAttack(e) {
-  const type = e.weapon ? e.weapon.type : (crnd() < 0.6 ? 'jab' : 'hook');
+function startAttack(e, combo) {
+  const type = e.weapon ? e.weapon.type : combo ? (e.lastAtk === 'jab' ? 'hook' : 'jab') : (crnd() < 0.6 ? 'jab' : 'hook');
   e.atk = Object.assign({ type, t: 0, hit: false }, ATK[type]); e.state = 'attack'; e.st = 0; e.wantAtk = false;
+  if (combo) e.atk.wu *= 0.6; else e.combo = (!e.weapon && crnd() < 0.4) ? 1 : 0;
+  e.lastAtk = type;
   SFX.windup();
 }
 const headW = new V3();
@@ -1854,7 +1871,9 @@ function enemyUpdate(e, dt) {
       faceTo(e, P.pos.x, P.pos.z, 7, dt);
       const myAng = Math.atan2(e.pos.z - P.pos.z, e.pos.x - P.pos.x);
       let da = myAng - e.slotAng; da = Math.atan2(Math.sin(da), Math.cos(da)); e.slotAng += da * Math.min(1, dt * 0.8) + e.circ * dt * 0.22;
-      const ringR = e.wantAtk ? 0.92 * e.sc : 2.3 + (e.idx % 3) * 0.45;
+      const ringR = e.wantAtk ? 0.92 * e.sc : 2.3 + (e.idx % 3) * 0.45 + Math.sin(time * 1.3 + e.ph) * 0.45;
+      e.dodgeCd -= dt;
+      if (e.dodgeCd <= 0) for (const h of hands) { if (h.gW && h.wv.length() > 3.2 && h.gW.distanceTo(e.headP) < 0.6 && h.wv.dot(cA.subVectors(e.headP, h.gW)) > 0) { e.dodgeCd = 1.4; if (crnd() < 0.22) { const sd = crnd() < 0.5 ? -1 : 1; e.sprV[2] += sd * 5; e.sprV[5] += sd * 3.5; e.sprV[6] += 2; e.push.x += Math.cos(e.yaw) * sd * 1.3; e.push.z += -Math.sin(e.yaw) * sd * 1.3; SFX.swing(); } break; } }
       let tx, tz;
       if (e.wantAtk) { tx = P.pos.x - dx / (d || 1) * ringR; tz = P.pos.z - dz / (d || 1) * ringR; }
       else { tx = P.pos.x + Math.cos(e.slotAng) * ringR; tz = P.pos.z + Math.sin(e.slotAng) * ringR; }
@@ -1876,17 +1895,19 @@ function enemyUpdate(e, dt) {
         e.flash = 0.35 + 0.65 * k * (0.75 + 0.25 * Math.sin(time * 40));
         const step = d > A.reach * 0.85 ? 1.2 : 0; wantV.set(dx / (d || 1) * step, 0, dz / (d || 1) * step);
       } else if (A.t < A.wu + A.sk + 0.08) {
+        if (!A.fx) { A.fx = true; e.sprV[4] += A.type === 'jab' ? 2.2 : -3.2; e.sprV[6] += 2.5; e.sprV[10] -= 0.3; }
         if (!A.hit) strikeContact(e, A);
         const k = Math.min(1, (A.t - A.wu) / A.sk); poseLerp(T, A.W, A.S, easeIO(k)); e.flash = 0;
         if (A.t < A.wu + A.sk) { const f = eFwd(e, cA); wantV.set(f.x * 1.5, 0, f.z * 1.5); }
       } else if (A.t < A.wu + A.sk + A.rc) {
         if (!A.hit && !A.missed) { A.missed = true; SFX.swing(); }
         const k = (A.t - A.wu - A.sk) / A.rc; poseLerp(T, A.S, base, easeIO(k));
-      } else { e.state = 'engage'; e.st = 0; e.atk = null; e.atkCd = CR(1.2, 2.6); }
+      } else if (e.combo > 0 && d < 1.4 && !P.dead && P.grabHand < 0) { e.combo--; startAttack(e, true); }
+      else { e.state = 'engage'; e.st = 0; e.atk = null; e.atkCd = CR(1.2, 2.6); }
       break;
     }
-    case 'flinch': { const k = Math.sin(Math.PI * clamp(e.st / 0.38, 0, 1)); poseLerp(T, base, PO.FLINCH, k * 0.9); faceTo(e, P.pos.x, P.pos.z, 4, dt); if (e.st > 0.38) { e.state = 'engage'; e.st = 0; e.atkCd = Math.max(e.atkCd, 0.5); } break; }
-    case 'stagger': { poseLerp(T, base, PO.STAGGER, 0.85); if (e.st > e.stagT) { e.state = 'engage'; e.st = 0; e.atkCd = Math.max(e.atkCd, 0.7); } break; }
+    case 'flinch': { const k = Math.sin(Math.PI * clamp(e.st / 0.38, 0, 1)); poseLerp(T, base, PO.FLINCH, k * 0.55); faceTo(e, P.pos.x, P.pos.z, 4, dt); if (e.st > 0.38) { e.state = 'engage'; e.st = 0; e.atkCd = Math.max(e.atkCd, 0.5); } break; }
+    case 'stagger': { poseLerp(T, base, PO.STAGGER, 0.85); T[JI.shL + 2] += Math.sin(time * 7 + e.ph) * 0.25; T[JI.shR + 2] -= Math.sin(time * 6 + e.ph) * 0.25; T[JI.head + 2] += Math.sin(time * 5 + e.ph) * 0.12; if (e.st > e.stagT) { e.state = 'engage'; e.st = 0; e.atkCd = Math.max(e.atkCd, 0.7); } break; }
     case 'stun': {
       T.set(PO.STUN); T[JI.spine + 2] += Math.sin(time * 2.1 + e.ph) * 0.14; T[JI.head + 2] += Math.sin(time * 1.7 + e.ph) * 0.2; T[JI.hips + 2] += Math.sin(time * 2.1 + e.ph + 1) * 0.06;
       wantV.set(Math.sin(time * 1.3 + e.ph) * 0.35, 0, Math.cos(time * 1.1 + e.ph) * 0.35);
@@ -1975,7 +1996,7 @@ function enemyUpdate(e, dt) {
     const mvx = (e.vel.x + e.push.x + sepV.x) * dt, mvz = (e.vel.z + e.push.z + sepV.z) * dt;
     emove(e, mvx, mvz, allowFall);
   } else if (e.state === 'down' || e.state === 'getup' || e.state === 'dead') { /* clip drives */ }
-  const pf = Math.exp(-7 * dt); e.push.multiplyScalar(pf);
+  const pf = Math.exp(-4.2 * dt); e.push.multiplyScalar(pf); e.yawV *= Math.exp(-3 * dt);
   // local velocity for gait
   localDir(e, cA.set(e.vel.x + e.push.x, 0, e.vel.z + e.push.z), e.lv);
   if (e.state === 'thrown') localDir(e, cA.set(e.vel.x, 0, e.vel.z), e.lv);
@@ -1996,7 +2017,7 @@ function slam(e, n, speed) {
 }
 
 /* ---------- POSE APPLICATION ---------- */
-const SPR_K = 150, SPR_C = 14;
+const SPR_K = 95, SPR_C = 9.5;
 function applyPose(e, dt) {
   const T = e.tgt, C = e.cur, J = e.J;
   const clipState = e.state === 'down' || e.state === 'getup' || e.state === 'dead';
@@ -2010,13 +2031,28 @@ function applyPose(e, dt) {
     T[JI.knL] += Math.max(0, -c) * (0.55 + 0.75 * run) * amt + 0.1 * amt; T[JI.knR] += Math.max(0, c) * (0.55 + 0.75 * run) * amt + 0.1 * amt;
     T[IHY] += -Math.abs(c) * 0.035 * amt - 0.04 * run; T[JI.hips + 1] += s * 0.12 * fz * amt; T[JI.spine] += 0.14 * run;
     if (!e.aware || run > 0.5) { T[JI.shL] += s * 0.45 * fz * amt * (1 + run); T[JI.shR] += -s * 0.45 * fz * amt * (1 + run); T[JI.elL] -= 0.35 * run; T[JI.elR] -= 0.35 * run; }
-  } else if (!clipState && e.aware && e.state !== 'airfall') {
-    T[IHY] += Math.sin(time * 5.2 + e.ph) * 0.012; // boxer bounce
+  }
+  if (!clipState && e.aware && (e.state === 'engage' || e.state === 'watch' || e.state === 'flinch')) {
+    const tt = time + e.ph, still = 1 - clamp(spd / 2.5, 0, 0.7);
+    T[IHY] += Math.sin(tt * 5.2) * 0.014 * still;                       // boxer bounce
+    T[JI.spine + 2] += Math.sin(tt * 1.9) * 0.1; T[JI.chest + 1] += Math.sin(tt * 1.5) * 0.14; // weave
+    T[JI.head] += Math.sin(tt * 2.6) * 0.05; T[JI.head + 1] += Math.sin(tt * 1.1) * 0.08;
+    T[JI.shL] += Math.sin(tt * 3.1) * 0.1; T[JI.shR] += Math.sin(tt * 2.7 + 1) * 0.1; T[JI.hips + 2] += Math.sin(tt * 1.9) * 0.04;
   }
   // smooth toward target (fast during strikes / clips for snap, slower otherwise for weight)
-  let rate = 13; if (clipState) rate = 30; else if (e.state === 'attack' && e.atk && e.atk.t > e.atk.wu * 0.9) rate = 34; else if (e.state === 'attack') rate = 18; else if (e.state === 'airfall') rate = 10;
-  const k = dt > 0 ? 1 - Math.exp(-rate * dt) : 1;
-  for (let i = 0; i < PLEN; i++) C[i] += (T[i] - C[i]) * k;
+  // hit-reaction layer (head snap / double over / twist), blended on top
+  if (e.react) {
+    const R = e.react; R.t += dt;
+    const kk = R.t < 0.06 ? R.t / 0.06 : Math.max(0, 1 - (R.t - 0.06) / R.dur);
+    if (!clipState) poseLerp(T, T, R.pose, easeIO(kk) * R.amt);
+    if (R.t > R.dur + 0.06) e.react = null;
+  }
+  // every joint is a critically-damped spring: natural acceleration + settle, no linear sliding
+  let K = 170; if (clipState) K = 520; else if (e.state === 'attack' && e.atk && e.atk.t > e.atk.wu * 0.85) K = 950; else if (e.state === 'attack') K = 260; else if (e.state === 'airfall') K = 110;
+  if (e.react && e.react.t < 0.14) K = Math.max(K, 750);
+  const DMP = 2 * Math.sqrt(K) * 0.9, CV = e.curV;
+  if (dt > 0) { const ns = Math.ceil(dt / 0.012), hs = dt / ns; for (let q = 0; q < ns; q++) for (let i = 0; i < PLEN; i++) { CV[i] += (K * (T[i] - C[i]) - DMP * CV[i]) * hs; C[i] += CV[i] * hs; } }
+  else { C.set(T); CV.fill(0); }
   // springs (hit reactions)
   const S = e.spr, V = e.sprV;
   for (let i = 0; i < 18; i++) { V[i] += (-SPR_K * S[i] - SPR_C * V[i]) * dt; S[i] += V[i] * dt; S[i] = clamp(S[i], -1.2, 1.2); }
@@ -2469,17 +2505,19 @@ function handContacts(dt) {
       const contact = pW.copy(hit.q).addScaledVector(n, c.r + HAND_R + 0.002);
       const dir = new V3(rel.x, rel.y, rel.z).normalize();
       registerHit(e, { dir: new V3(dir.x, 0, dir.z).normalize(), part: c.part, speed: sp, src: 'fist', point: hit.q });
-      h.gOff.subVectors(contact, Rw); h.holdT = 0.11;
+      h.passE = e; h.passT = 0.2; h.gOff.multiplyScalar(0.3); h.holdT = 0;
       const strong = clamp(0.55 + sp / 9, 0.6, 1);
       buzz(h, strong, 80); setTimeout(() => buzz(h, strong * 0.6, 45), 85);
       h.blood = Math.min(1, h.blood + (c.part === 'head' ? 0.07 : 0.03));
     }
     // ---- 2) solid contact: keep the visible hand on the surface and push the part
     const G = pW.copy(Rw).add(h.gOff);
+    h.passT = (h.passT || 0) - dt;
     if (h.holdT > 0) h.holdT -= dt; else G.lerp(Rw, 1 - Math.exp(-24 * dt));
     let touching = 0;
     for (let it = 0; it < 3; it++) {
       for (const e of nearE) for (const c of e.cols) {
+        if (h.passT > 0 && e === h.passE) continue;
         const q = closestPtSeg(G, c.a, c.b, pQ1);
         let dx = G.x - q.x, dy = G.y - q.y, dz = G.z - q.z, d = Math.hypot(dx, dy, dz);
         const pen = c.r + HAND_R - d; if (pen <= 0) continue;
