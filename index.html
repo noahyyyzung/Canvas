@@ -52,8 +52,9 @@ const approach = (v, t, s) => v < t ? Math.min(t, v + s) : Math.max(t, v - s);
 function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 
 /* ---------------- SETTINGS ---------------- */
-const SET = Object.assign({ flip: 'full', turn: 'snap', vignette: true, runDir: 'head', sens: 1, standH: 1.7 },
+const SET = Object.assign({ flip: 'full', turn: 'snap', vignette: true, runDir: 'head', sens: 1, standH: 1.7, playerH: 0, manualH: false },
   (() => { try { return JSON.parse(localStorage.getItem('reckoner_s1') || '{}'); } catch (e) { return {}; } })());
+if (!SET.playerH) SET.playerH = Math.min(2.2, Math.max(1.3, SET.standH / 0.936));
 function saveSet() { try { localStorage.setItem('reckoner_s1', JSON.stringify(SET)); } catch (e) { } }
 
 /* ---------------- RENDERER / SCENE ---------------- */
@@ -676,11 +677,11 @@ function infoPanel(title, rows, w = 1.5, h = 1.05) {
 }
 {
   const y = START.top;
-  const p1 = infoPanel('MOVE', [['LEFT STICK + PUMP ARMS', 'Push the stick the way you want to go, then swing your arms like a sprinter to run. Momentum builds the longer you run.'], ['A / X  +  ARMS UP', 'Jump. Your speed carries you FORWARD, and swinging your arms up adds height.'], ['RIGHT STICK', 'Turn. Press Y while standing still to open the menu.']]);
+  const p1 = infoPanel('MOVE', [['LEFT STICK', 'Push to run. CLICK the left stick to SPRINT. Momentum builds the longer you sprint, and you need sprint speed for big jumps, wall runs and slides.'], ['A / X  +  ARMS UP', 'Jump. Your speed carries you FORWARD, and swinging your arms up adds height.'], ['RIGHT STICK', 'Turn. Press Y while standing still to open the menu.']]);
   const p2 = infoPanel('CLIMB', [['GRIP', 'Grab ledges, pipes, ladders, poles and bars, even in mid-air.'], ['PULL DOWN, THEN PUSH', 'Pull yourself up, then push down past your chest to climb over the top.'], ['LEFT STICK / A', 'Shimmy along a ledge. Press A/X while hanging to leap.'], ['BARS', 'Catch a bar, swing under it, and let go at the top of the arc.']]);
   const p3 = infoPanel('TRICKS', [['WALL RUN / WALL KICKS', 'Jump alongside a wall at speed to run on it. Press A/X against any wall to kick off it, and chain kicks between alley walls to climb up to the roofs.'], ['SLIDE', 'Crouch for real or press B while sprinting.'], ['VAULT', 'Run into low walls and pipes.'], ['FLIPS', 'Push the right stick in mid-air.'], ['ROLL', 'Crouch or press B just before a big landing.']]);
   [[p1, 41.2], [p2, 44.75], [p3, 48.3]].forEach(([p, z]) => { p.position.set(58.7, y + 1.75, z); p.rotation.y = -Math.PI / 2; scene.add(p); });
-  const p4 = infoPanel('FIGHT', [['PUNCH', 'Throw real punches. Faster swings hit harder. Click the left stick to kick.'], ['BLOCK / PARRY', 'Hands up in front of your face. Raise them right as the hit lands to parry.'], ['COUNTER', 'Hit a thug WHILE he flashes red.'], ['GRAB / THROW / SLAM', 'Tap grip on a body. Shove him into walls, or swing and let go to throw.'], ['DISARM / FINISH', 'Grab the weapon hand. Hit a stunned thug hard to finish him.']], 1.5, 1.15);
+  const p4 = infoPanel('FIGHT', [['PUNCH / KICK', 'Throw real punches: your hands are solid and stop on faces and bodies. Push heads and arms around. Click the RIGHT stick to kick.'], ['BLOCK / PARRY', 'Their punches really hit your arms. Put your forearms in the way. Knock the punch away as it comes to parry.'], ['COUNTER', 'Hit a thug WHILE he flashes red.'], ['GRAB / THROW / SLAM', 'Tap grip on a body. Shove him into walls, or swing and let go to throw.'], ['DISARM / FINISH', 'Grab the weapon hand. Hit a stunned thug hard to finish him.']], 1.5, 1.15);
   p4.position.set(55.9, y + 1.8, 50.95); p4.rotation.y = Math.PI; scene.add(p4);
   const sign = infoPanel('CATHEDRAL QUARTER', [['', 'Red Order territory. Reach the top of the cathedral spire.']], 1.6, 0.42);
   sign.position.set(66.8, y + 2.4, 44.75); sign.rotation.y = -Math.PI / 2; scene.add(sign);
@@ -806,6 +807,7 @@ function armsUpdate(dt) {
     _E.copy(_S).addScaledVector(_dir, x).addScaledVector(_pole, hh);
     _Wc.copy(_W).sub(_E); const fl = _Wc.length(); _Wc.multiplyScalar(Math.max(0, fl - 0.15) / (fl || 1)).add(_E);
     A.shoulder.position.copy(_S); A.elbow.position.copy(_E);
+    h.cS.copy(_S).applyMatrix4(rig.matrixWorld); h.cE.copy(_E).applyMatrix4(rig.matrixWorld); h.cW.copy(_W).applyMatrix4(rig.matrixWorld);
     placeSeg(A.upper, _S, _E); placeSeg(A.fore, _E, _Wc); placeSeg(A.wrap, _Wc, _W);
   }
 }
@@ -1155,13 +1157,13 @@ function normalUpdate(dt, dW) {
       if (sp > 0.01) { vh.multiplyScalar(ns / sp); } P.vel.x = vh.x; P.vel.z = vh.z;
       if (ns < 2.2 || P.slide.t > 1.35 || (!P.slide.btn && camLocal.y > SET.standH * 0.8 && P.slide.t > 0.25) || (P.slide.btn && !IN.slideH && P.slide.t > 0.3)) P.slide = null;
     } else {
-      // run only while the left stick is pushed: stick = direction, arm swing = speed
+      // left stick runs; click the left stick to sprint (momentum builds)
       const sm = Math.min(1, Math.hypot(IN.lx, IN.ly));
       const des = tC.set(0, 0, 0);
       if (sm > 0.2) {
         des.set(-runDir.z * IN.lx - runDir.x * IN.ly, 0, runDir.x * IN.lx - runDir.z * IN.ly);
         if (des.lengthSq() > 1e-6) des.normalize();
-        des.multiplyScalar(Math.max(2.6 * sm, P.swing * VMAX * Math.min(1, sm * 1.4)));
+        des.multiplyScalar(P.sprint ? VMAX * Math.min(1, sm * 1.25) : 3.4 * sm);
       }
       const dsp = des.length(); if (dsp > 0.001) des.multiplyScalar(1 / dsp);
       const acc = dsp > sp ? (sp < 4 ? 10 : 4.3) : 8;
@@ -1228,7 +1230,7 @@ function normalUpdate(dt, dW) {
 }
 
 /* ---------------- INPUT ---------------- */
-const IN = { kickE: false, jumpE: false, slideE: false, slideH: false, yE: false, rx: 0, ry: 0, lx: 0, ly: 0, trigRE: false, trigLE: false };
+const IN = { sprintE: false, kickE: false, jumpE: false, slideE: false, slideH: false, yE: false, rx: 0, ry: 0, lx: 0, ly: 0, trigRE: false, trigLE: false };
 const prevBtn = {};
 function edge(k, v) { const p = !!prevBtn[k]; prevBtn[k] = v; return v && !p; }
 const KEY = {}; let mouseR = false, pitch = 0, deskCrouch = 0;
@@ -1248,7 +1250,8 @@ function readXR(frame, dt) {
   IN.jumpE = edge('A', Rh.btnA) | edge('X', L.btnA);
   IN.slideE = edge('B', Rh.btnB); IN.slideH = Rh.btnB;
   IN.yE = edge('Y', L.btnB);
-  IN.kickE = edge('LS', !!L.stickClick);
+  IN.kickE = edge('RS', !!Rh.stickClick);
+  IN.sprintE = edge('LS', !!L.stickClick);
   IN.rx = Rh.sx; IN.ry = Rh.sy; IN.lx = L.sx; IN.ly = L.sy;
   IN.trigRE = edge('TR', Rh.trigV > 0.7); IN.trigLE = edge('TL', L.trigV > 0.7);
 }
@@ -1281,7 +1284,7 @@ renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
 addEventListener('mousemove', e => { if (!desktop || document.pointerLockElement !== renderer.domElement) return; P.yaw -= e.movementX * 0.0022; pitch = clamp(pitch - e.movementY * 0.0022, -1.45, 1.45); });
 
 function computeSwing(dt) {
-  if (desktop) { P.swingSm = approach(P.swingSm, KEY.KeyW && P.grabHand < 0 ? 1 : 0, dt * 2.5); P.swing = P.swingSm; P.armUp = KEY.ShiftLeft ? 1 : 0.5; return; }
+  if (desktop) { P.swingSm = approach(P.swingSm, KEY.KeyW && P.grabHand < 0 ? 1 : 0, dt * 2.5); P.swing = P.swingSm; P.armUp = 0.5; return; }
   let sum = 0, up = 0, cnt = 0;
   for (const h of hands) {
     if (!h.has) continue;
@@ -1300,8 +1303,8 @@ function computeSwing(dt) {
 
 /* ---------------- MENU ---------------- */
 const MENU = { open: false, hover: -1 };
-const menuCv = canvas(1024, 1000), menuG = menuCv.getContext('2d'), menuTex = texFrom(menuCv, true, false);
-const menuMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 0.977), new THREE.MeshBasicMaterial({ map: menuTex, transparent: true, toneMapped: false, depthTest: false }));
+const menuCv = canvas(1024, 1100), menuG = menuCv.getContext('2d'), menuTex = texFrom(menuCv, true, false);
+const menuMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 1.074), new THREE.MeshBasicMaterial({ map: menuTex, transparent: true, toneMapped: false, depthTest: false }));
 menuMesh.renderOrder = 998; menuMesh.visible = false; scene.add(menuMesh);
 const sensName = () => SET.sens < 0.9 ? 'LOW' : SET.sens > 1.1 ? 'HIGH' : 'NORMAL';
 const MITEMS = [
@@ -1310,14 +1313,15 @@ const MITEMS = [
   { id: 'turn', label: () => 'TURNING:  ' + (SET.turn === 'snap' ? 'SNAP 30°' : 'SMOOTH') },
   { id: 'vig', label: () => 'COMFORT VIGNETTE:  ' + (SET.vignette ? 'ON' : 'OFF') },
   { id: 'dir', label: () => 'RUN DIRECTION:  ' + (SET.runDir === 'head' ? 'WHERE YOU LOOK' : 'WHERE HANDS POINT') },
-  { id: 'sens', label: () => 'ARM-SWING SENSITIVITY:  ' + sensName() },
-  { id: 'height', label: () => 'RECALIBRATE HEIGHT (STAND TALL)  ·  ' + SET.standH.toFixed(2) + ' m' },
+  { id: 'calib', label: () => 'CALIBRATE HEIGHT  ·  YOU: ' + ftIn(SET.playerH) + '  (' + SET.playerH.toFixed(2) + ' m)' },
+  { id: 'hminus', label: () => 'HEIGHT  − 1 INCH' },
+  { id: 'hplus', label: () => 'HEIGHT  + 1 INCH' },
   { id: 'respawn', label: () => 'RESPAWN AT LAST CHECKPOINT' },
   { id: 'spawn', label: () => 'SPAWN 4 THUGS NEAR ME (TEST FIGHT)' },
 ];
 function drawMenu() {
-  const g = menuG; g.clearRect(0, 0, 1024, 1000);
-  g.fillStyle = 'rgba(6,5,7,0.93)'; g.fillRect(0, 0, 1024, 1000); g.fillStyle = '#9e1119'; g.fillRect(0, 0, 1024, 12);
+  const g = menuG; g.clearRect(0, 0, 1024, 1100);
+  g.fillStyle = 'rgba(6,5,7,0.93)'; g.fillRect(0, 0, 1024, 1100); g.fillStyle = '#9e1119'; g.fillRect(0, 0, 1024, 12);
   g.font = 'bold 78px Impact, "Arial Black", sans-serif'; g.fillStyle = '#c8141e'; g.fillText('RECKONER', 48, 110);
   g.font = '26px "Segoe UI", Arial'; g.fillStyle = '#888'; g.fillText('PAUSED · STAGE 1 · point with the right hand, pull the trigger', 50, 152);
   MITEMS.forEach((it, i) => {
@@ -1325,7 +1329,7 @@ function drawMenu() {
     g.fillStyle = i === MENU.hover ? 'rgba(160,16,26,0.85)' : 'rgba(255,255,255,0.06)'; g.fillRect(40, y, 944, 70);
     g.font = 'bold 32px "Segoe UI", Arial'; g.fillStyle = '#f2f2f2'; g.fillText(it.label(), 66, y + 47);
   });
-  g.font = '22px "Segoe UI", Arial'; g.fillStyle = '#666'; g.fillText('made by Noah Young.', 50, 980);
+  g.font = '22px "Segoe UI", Arial'; g.fillStyle = '#666'; g.fillText('made by Noah Young.', 50, 1080);
   menuTex.needsUpdate = true;
 }
 function openMenu() {
@@ -1342,7 +1346,7 @@ function menuUpdate() {
   const o = tA.setFromMatrixPosition(h.root.matrixWorld), d = tB.set(0, 0, -1).applyQuaternion(h.root.getWorldQuaternion(tQ));
   ray.set(o, d); const hit = ray.intersectObject(menuMesh)[0];
   let hov = -1;
-  if (hit && hit.uv) { const py = (1 - hit.uv.y) * 1000; const i = Math.floor((py - 190) / 84); if (i >= 0 && i < MITEMS.length && (py - 190) % 84 < 70) hov = i; laser.scale.z = hit.distance; } else laser.scale.z = 2;
+  if (hit && hit.uv) { const py = (1 - hit.uv.y) * 1100; const i = Math.floor((py - 190) / 84); if (i >= 0 && i < MITEMS.length && (py - 190) % 84 < 70) hov = i; laser.scale.z = hit.distance; } else laser.scale.z = 2;
   if (hov !== MENU.hover) { MENU.hover = hov; drawMenu(); if (hov >= 0) buzz(h, 0.2, 15); }
   if ((IN.trigRE || IN.trigLE) && hov >= 0) {
     SFX.click(); const id = MITEMS[hov].id;
@@ -1352,7 +1356,8 @@ function menuUpdate() {
     if (id === 'vig') SET.vignette = !SET.vignette;
     if (id === 'dir') SET.runDir = SET.runDir === 'head' ? 'hands' : 'head';
     if (id === 'sens') SET.sens = SET.sens < 0.9 ? 1 : SET.sens < 1.1 ? 1.35 : 0.75;
-    if (id === 'height') SET.standH = clamp(camLocal.y, 1.2, 2.2);
+    if (id === 'calib') { closeMenu(); startCalibration(); return; }
+    if (id === 'hminus' || id === 'hplus') { setPlayerHeight(SET.playerH + (id === 'hplus' ? 0.0254 : -0.0254)); SET.manualH = true; }
     if (id === 'respawn') { closeMenu(); die(); }
     if (id === 'spawn') { closeMenu(); spawnNearPlayer(); return; }
     saveSet(); drawMenu();
@@ -1394,7 +1399,7 @@ function updateRig() {
     else if (P.roll) { tQ.setFromAxisAngle(P.roll.axis, -easeIO(P.roll.t / P.roll.dur) * Math.PI * 2); rigQ.multiply(tQ); }
   }
   if (P.roll) rollDip = Math.sin(Math.PI * clamp(P.roll.t / P.roll.dur, 0, 1)) * 0.75;
-  rig.quaternion.copy(rigQ);
+  rig.quaternion.copy(rigQ); BODY.rollDip = rollDip;
   tA.copy(camLocal).applyQuaternion(rigQ);
   rig.position.set(P.pos.x - tA.x, P.pos.y + camLocal.y + P.crouchOff - P.dip - rollDip - tA.y, P.pos.z - tA.z);
   for (const h of hands) { h.root.position.copy(h.local); h.root.quaternion.copy(h.q); }
@@ -1405,7 +1410,7 @@ function handVisuals() {
     h.root.visible = h.has;
     poseHand(h.mesh, h.grabbing ? 1 : h.gripV, h.trigV);
     if (h.grabbing) { tA.copy(h.anchor); h.root.worldToLocal(tA); h.mesh.position.lerp(tA, 0.6); }
-    else h.mesh.position.lerp(h.recoil, 0.5);
+    else ghostLocal(h, h.mesh.position);
   }
 }
 let hudT = 0, lastHud = '';
@@ -1420,7 +1425,7 @@ function drawHud() {
   g.fillStyle = '#3a0c10'; g.fillRect(118, 52, 128, 12); g.fillStyle = '#e02a33'; g.fillRect(118, 52, 128 * clamp(sp / 3.6 / VMAX, 0, 1.2) / 1.2, 12);
   g.font = 'bold 22px "Segoe UI", Arial'; g.fillStyle = '#ff4a52'; g.fillText(P.labelT > 0 ? P.label : '', 10, 112);
   hudTex.needsUpdate = true;
-  if (desktop) document.getElementById('dhud').textContent = `HP ${P.hp | 0}   SPEED ${sp | 0} km/h   ${P.labelT > 0 ? P.label : ''}\nW sprint (builds momentum) · Space jump (Shift = power) · C crouch/slide/roll · G or right-mouse grab · W while hanging = pull up\nArrows mid-air = flips · F flip mode (${SET.flip}) · R respawn\nLeft-click / Q punch · E kick · tap G/right-mouse on a thug = grab, release while turning = throw · T spawn thugs`;
+  if (desktop) document.getElementById('dhud').textContent = `HP ${P.hp | 0}   SPEED ${sp | 0} km/h   ${P.labelT > 0 ? P.label : ''}\nWASD move · Shift sprint · Space jump · C crouch/slide/roll · G or right-mouse grab · W while hanging = pull up\nArrows mid-air = flips · F flip mode (${SET.flip}) · R respawn\nLeft-click / Q punch · E kick · tap G/right-mouse on a thug = grab, release while turning = throw · T spawn thugs`;
 }
 
 /* =====================================================================
@@ -1450,7 +1455,7 @@ PO.GUARD_W = mkPose({ shR: [-0.35, 0, 0.18], elR: [-1.2, 0, 0], haR: [0.1, 0, 0]
 PO.JAB_W = mkPose({ chest: [0.06, 0.02, 0], shL: [-0.72, 0.15, -0.3], elL: [-2.2, 0, 0], hy: -0.1 }, PO.GUARD);
 PO.JAB_S = mkPose({ chest: [0.1, 0.28, 0], spine: [0.14, 0, 0], shL: [-1.74, 0.05, -0.08], elL: [-0.05, 0, 0], head: [0.12, -0.2, 0], hz: 0.2, hy: -0.08 }, PO.GUARD);
 PO.HOOK_W = mkPose({ chest: [0.06, 0.45, 0], hips: [0, 0.45, 0], shR: [-0.55, -0.1, 0.7], elR: [-1.7, 0, 0] }, PO.GUARD);
-PO.HOOK_S = mkPose({ chest: [0.15, -0.6, 0], hips: [0, 0.05, 0], spine: [0.15, 0, 0], shR: [-1.3, 0, 0.75], elR: [-1.25, 0, 0], head: [0.15, 0.25, 0], hz: 0.1, hy: -0.1 }, PO.GUARD);
+PO.HOOK_S = mkPose({ chest: [0.12, -0.65, 0], hips: [0, 0.05, 0], spine: [0.12, 0, 0], shR: [-1.5, 0, 0.5], elR: [-1.05, 0, 0], head: [0.15, 0.25, 0], hz: 0.1, hy: -0.1 }, PO.GUARD);
 PO.BAT_W = mkPose({ chest: [-0.05, 0.75, 0], hips: [0, 0.4, 0], spine: [0, 0, 0], shR: [-2.4, 0, 0.6], elR: [-1.5, 0, 0], shL: [-1.6, 0, 0.7], elL: [-1.3, 0, 0], head: [0.05, -0.3, 0] }, PO.GUARD);
 PO.BAT_S = mkPose({ chest: [0.2, -0.75, 0], hips: [0, -0.1, 0], spine: [0.2, 0, 0], shR: [-1.2, 0, 0.1], elR: [-0.2, 0, 0], shL: [-1.0, 0, 0.55], elL: [-0.5, 0, 0], head: [0.15, 0.2, 0], hz: 0.18, hy: -0.12 }, PO.GUARD);
 PO.KN_W = mkPose({ chest: [0.05, 0.35, 0], shR: [0.35, 0, 0.3], elR: [-1.5, 0, 0], shL: [-0.9, 0, -0.2], elL: [-1.6, 0, 0] }, PO.GUARD);
@@ -1532,7 +1537,7 @@ function weaponMesh(type) {
 }
 const ENEMIES = [], WEAPONS = [];
 function makeEnemy(x, y, z, opt = {}) {
-  const sc = CR(0.95, 1.05);
+  const scVar = CR(0.96, 1.04), sc = enemyBaseScale() * scVar;
   const mats = {
     skin: new THREE.MeshStandardMaterial({ color: pick(SKINS), roughness: 0.62, envMapIntensity: 0.35 }),
     top: new THREE.MeshStandardMaterial({ color: pick(TOPS), roughness: 0.85, envMapIntensity: 0.45 }),
@@ -1564,9 +1569,9 @@ function makeEnemy(x, y, z, opt = {}) {
     const ft = g('ft' + X, kn, 0, -0.43, 0); m(EG.shoe, EMAT.shoe, ft);
   }
   const e = {
-    root, J, mats, sc, halo, pos: new V3(x, y, z), yaw: CR(0, 6.28), yawT: 0, vel: new V3(), push: new V3(), hp: 100, poise: 30, maxPoise: 30,
+    root, J, mats, sc, scVar, halo, pos: new V3(x, y, z), yaw: CR(0, 6.28), yawT: 0, vel: new V3(), push: new V3(), hp: 100, poise: 30, maxPoise: 30,
     state: 'idle', st: 0, aware: false, gang: opt.gang || null, home: new V3(x, y, z), cur: new Float32Array(PO.REL), tgt: new Float32Array(PO.REL),
-    spr: new Float32Array(14), sprV: new Float32Array(14), ph: CR(0, 6), atk: null, atkCd: CR(1, 2.5), wantAtk: false, slotAng: CR(0, 6.28), circ: crnd() < 0.5 ? -1 : 1,
+    spr: new Float32Array(18), sprV: new Float32Array(18), ph: CR(0, 6), atk: null, atkCd: CR(1, 2.5), wantAtk: false, slotAng: CR(0, 6.28), circ: crnd() < 0.5 ? -1 : 1,
     freeze: 0, flash: 0, hitCd: [0, 0], weapon: null, clip: null, clipT: 0, clipStart: new Float32Array(PLEN), drift: new V3(), lieT: 0, stunT: 0, stunned: false,
     holdT: 0, holdOff: new V3(), slamCd: 0, slams: 0, tripCd: 0, dead: false, deadT: 0, idx: ENEMIES.length, smoke: crnd() < 0.3, lv: new V3(), thrownMax: 0,
     headP: new V3(), chestP: new V3(), bellyP: new V3(), handRP: new V3(), hipsP: new V3(), pool: -1, landed: false, nextBark: 0, fallFrom: y,
@@ -1733,19 +1738,20 @@ let slowT = 0, slowScale = 1, ETS = 1;
 function slowMo(scale, dur) { slowScale = Math.min(scale, slowT > 0 ? slowScale : 1); slowT = Math.max(slowT, dur); }
 function registerHit(e, H) {
   if (e.dead && e.state !== 'down' && e.state !== 'dead') return;
-  const dir = H.dir, part = H.part;
+  const dir = H.dir, part = H.part, limb = part.startsWith('arm') || part.startsWith('leg');
   const f = eFwd(e, cB), back = dir.x * f.x + dir.z * f.z > 0.45;
   const downed = e.state === 'down' || e.state === 'dead';
-  const counter = e.state === 'attack' && e.atk && e.atk.t < e.atk.wu;
-  const finisher = !downed && e.state === 'stun' && (H.speed > 3.2 || H.src === 'kick' || H.src === 'weapon');
+  const counter = !limb && e.state === 'attack' && e.atk && e.atk.t < e.atk.wu;
+  const finisher = !limb && !downed && e.state === 'stun' && (H.speed > 3.2 || H.src === 'kick' || H.src === 'weapon');
   let dmg = H.dmg != null ? H.dmg : clamp((H.speed - 1.3) * 7, 4, 26);
-  if (part === 'head') dmg *= 1.35; if (back) dmg *= 1.5; if (counter) dmg *= 1.8;
-  e.hp -= dmg; e.poise -= dmg * 1.25; e.st = Math.min(e.st, 0);
+  if (part === 'head') dmg *= 1.35; if (limb) dmg *= 0.45; if (back) dmg *= 1.5; if (counter) dmg *= 1.8;
+  e.hp -= dmg; e.poise -= dmg * (limb ? 0.6 : 1.25); e.st = Math.min(e.st, 0);
   alertGang(e);
   // impact feel
   e.freeze = clamp(dmg * 0.0035, 0.03, 0.09);
   const m = clamp(dmg / 14, 0.5, 2.3), dl = localDir(e, dir, cC), S = e.sprV;
-  if (part === 'head') { S[0] += dl.z * 6.5 * m; S[1] += dl.x * 7 * m; S[2] += -dl.x * 4 * m; S[3] += dl.z * 2.2 * m; S[4] += dl.x * 2.2 * m; S[13] += dl.z * 2 * m; }
+  if (limb) { if (part === 'armL') { S[8] += -dl.z * 6 * m; S[11] += dl.x * 5 * m; S[14] += -dl.z * 4 * m; } else if (part === 'armR') { S[9] += -dl.z * 6 * m; S[12] += dl.x * 5 * m; S[15] += -dl.z * 4 * m; } else if (part === 'legL') S[16] += -dl.z * 5 * m; else S[17] += -dl.z * 5 * m; S[0] += dl.z * 1.2 * m; }
+  else if (part === 'head') { S[0] += dl.z * 6.5 * m; S[1] += dl.x * 7 * m; S[2] += -dl.x * 4 * m; S[3] += dl.z * 2.2 * m; S[4] += dl.x * 2.2 * m; S[13] += dl.z * 2 * m; }
   else { S[6] += -dl.z * 5 * m; S[0] += -dl.z * 2.5 * m; S[3] += -dl.z * 2 * m; S[4] += dl.x * 3 * m; S[7] += dl.x * 2 * m; }
   S[10] -= 0.35 * m; S[8] += CR(-1, 1) * 2.5 * m; S[9] += CR(-1, 1) * 2.5 * m; S[11] -= 1.6 * m; S[12] += 1.6 * m;
   if (!downed) { const pm = H.push || 1; e.push.x += dir.x * clamp(0.45 + dmg * 0.05, 0.45, 2.2) * pm; e.push.z += dir.z * clamp(0.45 + dmg * 0.05, 0.45, 2.2) * pm; }
@@ -1768,8 +1774,8 @@ function registerHit(e, H) {
   if (H.knock) { knockdown(e, dir); return; }
   if (e.poise <= 0) { e.poise = e.maxPoise; if (e.hp < 45 && !e.stunned) { stun(e); setLabel('STUNNED — FINISH HIM', 1.6); } else { stagger(e, 0.55 + dmg * 0.012); if (back) setLabel('BACK ATTACK', 0.8); } return; }
   if (e.state === 'stun') { e.stunT = Math.max(e.stunT, 1.2); return; }
-  if (e.state !== 'held' && e.state !== 'thrown' && e.state !== 'airfall') flinch(e);
-  if (back) setLabel('BACK ATTACK', 0.8);
+  if (e.state !== 'held' && e.state !== 'thrown' && e.state !== 'airfall' && !(limb && e.state === 'engage' && dmg < 6)) flinch(e);
+  if (back) setLabel('BACK ATTACK', 0.8); else if (limb && part.startsWith('arm') && e.aware) setLabel('GUARDED', 0.6);
 }
 
 /* ---------- ENEMY ATTACKS ON PLAYER ---------- */
@@ -1869,11 +1875,12 @@ function enemyUpdate(e, dt) {
         const k = A.t / A.wu; poseLerp(T, base, A.W, easeIO(k));
         e.flash = 0.35 + 0.65 * k * (0.75 + 0.25 * Math.sin(time * 40));
         const step = d > A.reach * 0.85 ? 1.2 : 0; wantV.set(dx / (d || 1) * step, 0, dz / (d || 1) * step);
-      } else if (A.t < A.wu + A.sk) {
-        if (!A.hit) resolveStrike(e);
-        const k = (A.t - A.wu) / A.sk; poseLerp(T, A.W, A.S, easeIO(k)); e.flash = 0;
-        const f = eFwd(e, cA); wantV.set(f.x * 1.5, 0, f.z * 1.5);
+      } else if (A.t < A.wu + A.sk + 0.08) {
+        if (!A.hit) strikeContact(e, A);
+        const k = Math.min(1, (A.t - A.wu) / A.sk); poseLerp(T, A.W, A.S, easeIO(k)); e.flash = 0;
+        if (A.t < A.wu + A.sk) { const f = eFwd(e, cA); wantV.set(f.x * 1.5, 0, f.z * 1.5); }
       } else if (A.t < A.wu + A.sk + A.rc) {
+        if (!A.hit && !A.missed) { A.missed = true; SFX.swing(); }
         const k = (A.t - A.wu - A.sk) / A.rc; poseLerp(T, A.S, base, easeIO(k));
       } else { e.state = 'engage'; e.st = 0; e.atk = null; e.atkCd = CR(1.2, 2.6); }
       break;
@@ -2012,12 +2019,13 @@ function applyPose(e, dt) {
   for (let i = 0; i < PLEN; i++) C[i] += (T[i] - C[i]) * k;
   // springs (hit reactions)
   const S = e.spr, V = e.sprV;
-  for (let i = 0; i < 14; i++) { V[i] += (-SPR_K * S[i] - SPR_C * V[i]) * dt; S[i] += V[i] * dt; S[i] = clamp(S[i], -1.2, 1.2); }
+  for (let i = 0; i < 18; i++) { V[i] += (-SPR_K * S[i] - SPR_C * V[i]) * dt; S[i] += V[i] * dt; S[i] = clamp(S[i], -1.2, 1.2); }
   for (let j = 0; j < JN.length; j++) J[JN[j]].rotation.set(C[j * 3], C[j * 3 + 1], C[j * 3 + 2]);
   J.head.rotation.x += S[0]; J.head.rotation.y += S[1]; J.head.rotation.z += S[2];
   J.chest.rotation.x += S[3]; J.chest.rotation.y += S[4]; J.chest.rotation.z += S[5];
   J.spine.rotation.x += S[6]; J.hips.rotation.y += S[7]; J.neck.rotation.x += S[13];
   J.shL.rotation.x += S[8]; J.shR.rotation.x += S[9]; J.shL.rotation.z += S[11]; J.shR.rotation.z += S[12];
+  J.elL.rotation.x += S[14]; J.elR.rotation.x += S[15]; J.thL.rotation.x += S[16]; J.thR.rotation.x += S[17];
   if (!clipState) J.chest.rotation.x += Math.sin(time * 1.7 + e.ph) * 0.02;
   J.hips.position.set(0, 0.99 + C[IHY] + S[10] * 0.25, C[IHZ]);
   // feet flat on ground while upright
@@ -2038,6 +2046,7 @@ function applyPose(e, dt) {
   e.root.updateMatrixWorld(true);
   J.head.localToWorld(e.headP.set(0, 0.09, 0)); J.chest.localToWorld(e.chestP.set(0, 0.12, 0)); J.spine.localToWorld(e.bellyP.set(0, 0.04, 0));
   J.haR.localToWorld(e.handRP.set(0, -0.05, 0)); J.hips.localToWorld(e.hipsP.set(0, 0, 0));
+  if (started && e.pos.distanceTo(P.pos) < 4) computeColliders(e); else e.colOK = false;
 }
 
 /* ---------- PLAYER COMBAT (fists, weapons, kicks, grabs) ---------- */
@@ -2165,16 +2174,14 @@ function playerStrikes(dt) {
   for (const h of hands) {
     if (!h.has) continue;
     const fw = fistWorld(h, cA);
-    const v = cB.subVectors(fw, h.fPrev).divideScalar(Math.max(dt, 1e-3)); h.fPrev.copy(fw);
-    if (v.length() > 25) v.set(0, 0, 0);
-    h.wv.lerp(v, 0.5);
+    const v = cB.copy(h.wv);
     const rel = cC.copy(v).sub(P.vel); const speed = rel.length();
     // guard zone (for parry timing)
     const hr = cD.subVectors(fw, headW), inZone = hr.length() < 0.42 && hr.dot(headFwd) > -0.02;
     h.zoneT = inZone ? h.zoneT + dt : 0;
     h.whoosh -= dt;
-    if (h.grabbing || h.holdE || P.grabHand >= 0) continue;
-    // weapon tip or fist
+    if (h.grabbing || h.holdE || P.grabHand >= 0 || !h.weapon) continue;
+    // weapon tip
     let hitP = fw, rad = 0.065, src = 'fist', wtype = null, sp = speed;
     if (h.weapon) {
       const tipLen = h.weapon.type === 'bat' ? 0.78 : 0.22;
@@ -2349,6 +2356,343 @@ function combatUpdate(dt) {
   drumsUpdate(dt, combatHot && !P.dead);
 }
 
+
+/* =====================================================================
+   PHYSICAL HANDS — your hands are solid against enemies.
+   Each enemy carries capsule colliders on every body part. Your visible
+   hand ("ghost" hand) can never sink into them: it stops on the surface,
+   and the part you press on yields (head tips back, arm moves, torso
+   bends), then the whole body stumbles if you keep shoving.
+   Enemy fists / weapons collide with YOUR arms and hands too (real blocks).
+   ===================================================================== */
+const pX = new V3(), pY = new V3(), pZ = new V3(), pW = new V3(), pQ1 = new V3(), pQ2 = new V3(), pLD = new V3();
+function closestPtSeg(p, a, b, out) {
+  const abx = b.x - a.x, aby = b.y - a.y, abz = b.z - a.z, L2 = abx * abx + aby * aby + abz * abz;
+  let t = L2 > 1e-10 ? ((p.x - a.x) * abx + (p.y - a.y) * aby + (p.z - a.z) * abz) / L2 : 0; t = t < 0 ? 0 : t > 1 ? 1 : t;
+  return out.set(a.x + abx * t, a.y + aby * t, a.z + abz * t);
+}
+// distance between segments p1q1 and p2q2 (Real-Time Collision Detection 5.1.9)
+function segSegDist(p1, q1, p2, q2, c1, c2) {
+  const d1x = q1.x - p1.x, d1y = q1.y - p1.y, d1z = q1.z - p1.z, d2x = q2.x - p2.x, d2y = q2.y - p2.y, d2z = q2.z - p2.z;
+  const rx = p1.x - p2.x, ry = p1.y - p2.y, rz = p1.z - p2.z;
+  const a = d1x * d1x + d1y * d1y + d1z * d1z, e = d2x * d2x + d2y * d2y + d2z * d2z, f = d2x * rx + d2y * ry + d2z * rz;
+  let s, t;
+  if (a <= 1e-9 && e <= 1e-9) { s = t = 0; }
+  else if (a <= 1e-9) { s = 0; t = clamp(f / e, 0, 1); }
+  else {
+    const c = d1x * rx + d1y * ry + d1z * rz;
+    if (e <= 1e-9) { t = 0; s = clamp(-c / a, 0, 1); }
+    else {
+      const b = d1x * d2x + d1y * d2y + d1z * d2z, den = a * e - b * b;
+      s = den > 1e-9 ? clamp((b * f - c * e) / den, 0, 1) : 0;
+      t = (b * s + f) / e;
+      if (t < 0) { t = 0; s = clamp(-c / a, 0, 1); } else if (t > 1) { t = 1; s = clamp((b - c) / a, 0, 1); }
+    }
+  }
+  c1.set(p1.x + d1x * s, p1.y + d1y * s, p1.z + d1z * s); c2.set(p2.x + d2x * t, p2.y + d2y * t, p2.z + d2z * t);
+  return c1.distanceTo(c2);
+}
+
+/* ---------- enemy colliders ---------- */
+const COL_J = ['hips', 'spine', 'neck', 'shL', 'elL', 'haL', 'shR', 'elR', 'haR', 'thL', 'knL', 'ftL', 'thR', 'knR', 'ftR'];
+function computeColliders(e) {
+  if (!e.cols) { e.cols = []; for (let i = 0; i < 13; i++) e.cols.push({ a: new V3(), b: new V3(), r: 0, part: '' }); e.jw = {}; for (const n of COL_J) e.jw[n] = new V3(); e.fistL = new V3(); e.fistR = new V3(); }
+  const J = e.J, W = e.jw, s = e.sc;
+  for (const n of COL_J) J[n].localToWorld(W[n].set(0, 0, 0));
+  J.haL.localToWorld(e.fistL.set(0, -0.05, 0)); J.haR.localToWorld(e.fistR.set(0, -0.05, 0));
+  const C = e.cols; let i = 0;
+  const put = (a, b, r, part) => { const c = C[i++]; c.a.copy(a); c.b.copy(b); c.r = r * s; c.part = part; };
+  put(e.headP, e.headP, 0.125, 'head');
+  put(pX.copy(W.spine).lerp(W.neck, 0.3), W.neck, 0.165, 'chest');
+  put(W.hips, pX.copy(W.spine).lerp(W.neck, 0.3), 0.155, 'belly');
+  put(W.shL, W.elL, 0.064, 'armL'); put(W.elL, W.haL, 0.054, 'armL'); put(e.fistL, e.fistL, 0.058, 'armL');
+  put(W.shR, W.elR, 0.064, 'armR'); put(W.elR, W.haR, 0.054, 'armR'); put(e.fistR, e.fistR, 0.058, 'armR');
+  put(W.thL, W.knL, 0.08, 'legL'); put(W.knL, W.ftL, 0.064, 'legL');
+  put(W.thR, W.knR, 0.08, 'legR'); put(W.knR, W.ftR, 0.064, 'legR');
+  e.colOK = true;
+}
+
+/* ---------- body part yielding ---------- */
+const STAND = { engage: 1, idle: 1, alert: 1, attack: 1, flinch: 1, stagger: 1, stun: 1, watch: 1 };
+function pushPart(e, part, dir, depth, dt) {
+  const dl = localDir(e, dir, pLD), a = clamp(depth, 0, 0.14) * 1150 * dt, V = e.sprV;
+  switch (part) {
+    case 'head': V[0] += (dl.z - dl.y * 0.6) * a; V[1] += dl.x * a * 0.5; V[2] += -dl.x * a; V[13] += dl.z * a * 0.4; V[3] += dl.z * a * 0.25; break;
+    case 'chest': V[3] += dl.z * a * 0.55; V[5] += -dl.x * a * 0.35; V[6] += dl.z * a * 0.3; break;
+    case 'belly': V[6] += -dl.z * a * 0.35; V[7] += dl.x * a * 0.3; break;
+    case 'armL': V[8] += -dl.z * a * 0.9; V[11] += dl.x * a * 0.9; V[14] += -dl.z * a * 0.5; break;
+    case 'armR': V[9] += -dl.z * a * 0.9; V[12] += dl.x * a * 0.9; V[15] += -dl.z * a * 0.5; break;
+    case 'legL': V[16] += -dl.z * a * 0.7; break;
+    case 'legR': V[17] += -dl.z * a * 0.7; break;
+  }
+  // keep shoving and the whole body gives way (stumbles back, never flies)
+  if (!e.dead && STAND[e.state] && depth > 0.015) {
+    const k = clamp(depth, 0, 0.14) * (part === 'chest' || part === 'belly' ? 48 : part === 'head' ? 30 : 18) * dt;
+    const hl = Math.hypot(dir.x, dir.z) || 1;
+    e.push.x += dir.x / hl * k; e.push.z += dir.z / hl * k;
+    const ps = Math.hypot(e.push.x, e.push.z); if (ps > 2.2) { e.push.x *= 2.2 / ps; e.push.z *= 2.2 / ps; }
+    if (e.state === 'attack' && e.atk && e.atk.t < e.atk.wu && depth > 0.05) { e.atk = null; e.state = 'flinch'; e.st = 0; e.flash = 0; } // jammed
+  }
+}
+
+/* ---------- your hands ---------- */
+const HAND_C = [new V3(-0.02, -0.006, 0.0), new V3(0.02, -0.006, 0.0)], HAND_R = 0.058;
+for (const h of hands) { h.gOff = new V3(); h.rPrev = new V3(); h.gPrev = new V3(); h.gW = new V3(); h.holdT = 0; h.pushBuzz = 0; h.cS = new V3(); h.cE = new V3(); h.cW = new V3(); h.rInit = false; }
+const nearE = [];
+function handContacts(dt) {
+  nearE.length = 0;
+  for (const e of ENEMIES) if (e.colOK && e.root.visible && e.pos.distanceTo(P.pos) < 3.2) nearE.push(e);
+  for (const h of hands) {
+    if (!h.has) { h.rInit = false; continue; }
+    const Rw = pX.copy(HAND_C[h.i]).applyMatrix4(h.root.matrixWorld);
+    const v = pY.subVectors(Rw, h.rPrev).divideScalar(Math.max(dt, 1e-3));
+    if (!h.rInit || v.length() > 25) { v.set(0, 0, 0); h.rInit = true; h.gPrev.copy(Rw); }
+    h.rPrev.copy(Rw); h.wv.lerp(v, 0.5);
+    const free = h.grabbing || h.holdE || h.weapon || MENU.open || !nearE.length;
+    if (free) { h.gOff.multiplyScalar(Math.exp(-20 * dt)); h.gW.copy(Rw).add(h.gOff); h.gPrev.copy(h.gW); continue; }
+    const rel = pZ.copy(v).sub(P.vel), sp = rel.length();
+    // ---- 1) swept punch: last visible hand position -> real hand
+    let hit = null;
+    if (sp > 1.9) {
+      for (let k = 1; k <= 6 && !hit; k++) {
+        const p = pW.lerpVectors(h.gPrev, Rw, k / 6);
+        for (const e of nearE) {
+          if (e.hitCd[h.i] > 0) continue;
+          for (const c of e.cols) { const q = closestPtSeg(p, c.a, c.b, pQ1); if (p.distanceTo(q) < c.r + HAND_R) { const nx = p.x - q.x, ny = p.y - q.y, nz = p.z - q.z, nl = Math.hypot(nx, ny, nz) || 1; if (-(rel.x * nx + rel.y * ny + rel.z * nz) / nl > 1.6) hit = { e, c, q: q.clone(), p: p.clone() }; break; } }
+          if (hit) break;
+        }
+      }
+    }
+    if (hit) {
+      const { e, c } = hit; e.hitCd[h.i] = 0.3;
+      const n = pQ2.subVectors(hit.p, hit.q); if (n.lengthSq() < 1e-8) n.copy(rel).negate(); n.normalize();
+      const contact = pW.copy(hit.q).addScaledVector(n, c.r + HAND_R + 0.002);
+      const dir = new V3(rel.x, rel.y, rel.z).normalize();
+      registerHit(e, { dir: new V3(dir.x, 0, dir.z).normalize(), part: c.part, speed: sp, src: 'fist', point: hit.q });
+      h.gOff.subVectors(contact, Rw); h.holdT = 0.11;
+      const strong = clamp(0.55 + sp / 9, 0.6, 1);
+      buzz(h, strong, 80); setTimeout(() => buzz(h, strong * 0.6, 45), 85);
+      h.blood = Math.min(1, h.blood + (c.part === 'head' ? 0.07 : 0.03));
+    }
+    // ---- 2) solid contact: keep the visible hand on the surface and push the part
+    const G = pW.copy(Rw).add(h.gOff);
+    if (h.holdT > 0) h.holdT -= dt; else G.lerp(Rw, 1 - Math.exp(-24 * dt));
+    let touching = 0;
+    for (let it = 0; it < 3; it++) {
+      for (const e of nearE) for (const c of e.cols) {
+        const q = closestPtSeg(G, c.a, c.b, pQ1);
+        let dx = G.x - q.x, dy = G.y - q.y, dz = G.z - q.z, d = Math.hypot(dx, dy, dz);
+        const pen = c.r + HAND_R - d; if (pen <= 0) continue;
+        if (d < 1e-5) { dx = -headFwd.x; dy = 0; dz = -headFwd.z; d = 1; }
+        const nx = dx / d, ny = dy / d, nz = dz / d;
+        G.x += nx * pen; G.y += ny * pen; G.z += nz * pen;
+        if (it === 0) {
+          const qr = closestPtSeg(Rw, c.a, c.b, pQ2), realPen = c.r + HAND_R - Rw.distanceTo(qr);
+          const depth = Math.max(realPen, pen);
+          if (depth > 0.004) { pushPart(e, c.part, pY.set(-nx, -ny, -nz), depth, dt); touching = Math.max(touching, depth); }
+        }
+      }
+    }
+    h.gOff.subVectors(G, Rw);
+    if (h.gOff.length() > 0.38) h.gOff.set(0, 0, 0); // reached way through: let go instead of locking up
+    h.gW.copy(Rw).add(h.gOff); h.gPrev.copy(h.gW);
+    h.pushBuzz -= dt;
+    if (touching > 0 && h.pushBuzz <= 0) { buzz(h, clamp(0.15 + touching * 6, 0.15, 0.6), 30); h.pushBuzz = 0.06; }
+  }
+}
+// called by handVisuals: place the visible hand at the ghost position
+function ghostLocal(h, out) {
+  h.root.getWorldPosition(pX); pX.add(h.gOff);
+  return h.root.worldToLocal(out.copy(pX));
+}
+
+/* ---------- enemy strikes collide with your arms, hands and body ---------- */
+const capA = new V3(), capB = new V3(), sC1 = new V3(), sC2 = new V3(), sTip = new V3(), sFist = new V3();
+function playerHurtboxes() {
+  headW.copy(camLocal).applyMatrix4(rig.matrixWorld);
+  return {
+    head: headW,
+    nA: pQ1.copy(headW).add(pY.set(-headFwd.x * 0.06, -0.2, -headFwd.z * 0.06)),
+    nB: pQ2.set(headW.x - headFwd.x * 0.06, P.pos.y + 0.8, headW.z - headFwd.z * 0.06),
+  };
+}
+function strikeContact(e, A) {
+  const hand = A.type === 'jab' ? e.J.haL : e.J.haR;
+  hand.localToWorld(sFist.set(0, -0.05, 0));
+  const hasW = e.weapon && (A.type === 'bat' || A.type === 'knife');
+  if (hasW) e.weapon.mesh.localToWorld(sTip.set(0, A.type === 'bat' ? 0.8 : 0.24, 0));
+  if (!A.pPrev) { A.pPrev = sFist.clone(); A.tPrev = hasW ? sTip.clone() : null; return; }
+  // segments that can connect this frame
+  const segs = [[A.pPrev, sFist, 0.06]];
+  if (hasW) { segs.push([A.tPrev, sTip, A.type === 'bat' ? 0.05 : 0.025]); segs.push([sFist, sTip, A.type === 'bat' ? 0.04 : 0.02]); }
+  const dirE = pX.set(e.pos.x - P.pos.x, 0, e.pos.z - P.pos.z).normalize(); // player -> enemy
+  // 1) your arms / hands block
+  for (const h of hands) {
+    if (!h.has) continue;
+    const caps = [[h.cE, h.cW, 0.055], [h.gW, h.gW, 0.068]]; // forearm + hand do the blocking
+    for (const [sa, sb, sr] of segs) for (const [ca, cb, cr] of caps) {
+      if (segSegDist(sa, sb, ca, cb, sC1, sC2) < sr + cr) {
+        A.hit = true;
+        const toward = h.wv.dot(dirE), parried = toward > 1.4 || h.wv.length() > 2.8;
+        const pdir = pY.subVectors(sFist, A.pPrev); if (pdir.lengthSq() < 1e-8) pdir.copy(dirE).negate(); pdir.normalize();
+        h.gOff.addScaledVector(pdir, 0.07); h.holdT = 0.06; // your guard gets knocked a little
+        buzz(h, 1, 110); setTimeout(() => buzz(h, 0.6, 50), 115); buzz(hands[1 - h.i], 0.35, 40);
+        const S = e.sprV; const sh = A.type === 'jab' ? 8 : 9; S[sh] += 7; S[sh === 8 ? 14 : 15] += 5; S[0] -= 2; e.freeze = 0.05;
+        if (parried) {
+          stagger(e, 1.05); e.poise = 0; SFX.parry(); setLabel('PARRY', 1.1); slowMo(0.55, 0.3);
+          e.push.x += dirE.x * 1.4; e.push.z += dirE.z * 1.4;
+        } else {
+          A.t = Math.max(A.t, A.wu + A.sk); // strike bounces off into recovery
+          if (A.blk > 1) hurt(A.blk); SFX.block(); setLabel('BLOCKED', 0.7);
+          P.vel.x -= dirE.x * 0.6; P.vel.z -= dirE.z * 0.6; P.dipV += 0.2;
+          if (A.type === 'knife') { P.bleed = Math.max(P.bleed || 0, 1.5); h.blood = Math.min(1, h.blood + 0.05); }
+        }
+        return;
+      }
+    }
+  }
+  // 2) your head / body
+  const HB = playerHurtboxes();
+  for (const [sa, sb, sr] of segs) {
+    const dHead = segSegDist(sa, sb, HB.head, HB.head, sC1, sC2), dBody = segSegDist(sa, sb, HB.nA, HB.nB, sC1, sC2);
+    if (dHead < sr + 0.14 || dBody < sr + 0.21) {
+      A.hit = true;
+      const head = dHead < sr + 0.14;
+      const dmg = Math.round(A.dmg * (head ? 1.15 : 0.9));
+      hurt(dmg); P.vel.x -= dirE.x * 1.2; P.vel.z -= dirE.z * 1.2; P.dipV += head ? 0.7 : 0.45;
+      if (A.type === 'bat') SFX.bat(); else if (A.type === 'knife') SFX.stab(); else SFX.punch(A.dmg * 2);
+      P.bleed = Math.max(P.bleed || 0, A.type === 'knife' ? 5 : A.type === 'bat' ? 3 : head ? 1.2 : 0.4);
+      for (const h of hands) { buzz(h, 1, 160); h.blood = Math.min(1, h.blood + 0.02); }
+      setTimeout(() => { for (const h of hands) buzz(h, 0.7, 80); }, 170);
+      spawnBlood(pW.copy(head ? HB.head : sC2).addScaledVector(dirE, 0.18), pY.set(-dirE.x, 0.3, -dirE.z), A.type === 'knife' ? 14 : head ? 7 : 4, 1.6);
+      return;
+    }
+  }
+  A.pPrev.copy(sFist); if (hasW) A.tPrev.copy(sTip);
+}
+
+/* =====================================================================
+   PLAYER BODY — torso, belt, legs and boots you can see when you look down
+   ===================================================================== */
+const beltMat = new THREE.MeshStandardMaterial({ color: 0x1c1712, roughness: 0.6, metalness: 0.2, envMapIntensity: 0.5 });
+const BODY = { ph: 0, fL: new V3(), fR: new V3(), init: false, rollDip: 0 };
+const torso = new THREE.Group(); rig.add(torso);
+{
+  const add = (g, m, x, y, z, rz = 0) => { const o = new THREE.Mesh(g, m); o.position.set(x, y, z); o.rotation.z = rz; o.frustumCulled = false; torso.add(o); return o; };
+  add(new THREE.BoxGeometry(0.34, 0.2, 0.22), armMat, 0, 0.04, 0);
+  add(new THREE.CapsuleGeometry(0.148, 0.12, 4, 12), armMat, 0, 0.24, 0);
+  const ch = new THREE.CapsuleGeometry(0.165, 0.18, 4, 14); ch.scale(1.28, 1, 0.78); add(ch, armMat, 0, 0.46, 0.015);
+  add(new THREE.CylinderGeometry(0.176, 0.176, 0.06, 20), beltMat, 0, 0.12, 0);
+  for (const [x, z] of [[-0.11, -0.13], [0.11, -0.13], [0.17, 0.02], [-0.17, 0.02], [0, 0.15]]) add(new THREE.BoxGeometry(0.07, 0.08, 0.05), beltMat, x, 0.1, z);
+  for (const zf of [-0.132, 0.132]) {
+    add(new THREE.BoxGeometry(0.024, 0.3, 0.012), armStripeMat, 0, 0.36, zf);
+    add(new THREE.BoxGeometry(0.024, 0.24, 0.012), armStripeMat, -0.095, 0.59, zf, 0.75);
+    add(new THREE.BoxGeometry(0.024, 0.24, 0.012), armStripeMat, 0.095, 0.59, zf, -0.75);
+  }
+  add(new THREE.BoxGeometry(0.06, 0.05, 0.05), armStripeMat, 0, 0.13, -0.17); // buckle
+}
+const legs = [0, 1].map(i => {
+  const side = i === 0 ? -1 : 1;
+  const thigh = armSeg(0.085, 0.068, armMat, true), shin = armSeg(0.064, 0.05, armMat, false);
+  const knee = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 8), beltMat); knee.frustumCulled = false; rig.add(knee);
+  const boot = new THREE.Group(); rig.add(boot);
+  const bm = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.13, 0.29), armMat); bm.position.set(0, -0.02, -0.06); bm.frustumCulled = false; boot.add(bm);
+  for (const y of [0.0, 0.05]) { const s = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.025, 0.06), armStripeMat); s.position.set(0, y, -0.02); s.frustumCulled = false; boot.add(s); }
+  let holster = null;
+  if (side > 0) { holster = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.22, 0.1), beltMat); holster.frustumCulled = false; rig.add(holster); }
+  return { side, thigh, shin, knee, boot, holster };
+});
+const bA = new V3(), bB = new V3(), bH = new V3(), bN = new V3(), bK = new V3(), bT = new V3(), bV = new V3(), bP = new V3(), bQ = new QT(), bQ2 = new QT(), qYawInv = new QT();
+function ik2(A, T, a, b, pole, outK) {
+  const dir = bT.subVectors(T, A); let d = dir.length(); if (d < 0.05) d = 0.05; dir.multiplyScalar(1 / d);
+  if (d > (a + b) * 0.999) { T.copy(A).addScaledVector(dir, (a + b) * 0.999); d = (a + b) * 0.999; }
+  const x = (a * a - b * b + d * d) / (2 * d), hh = Math.sqrt(Math.max(0, a * a - x * x));
+  const p = bP.copy(pole).addScaledVector(dir, -pole.dot(dir)); if (p.lengthSq() < 1e-6) p.set(0, 0, -1); p.normalize();
+  return outK.copy(A).addScaledVector(dir, x).addScaledVector(p, hh);
+}
+function bodyUpdate(dt) {
+  const vis = started && !P.dead;
+  torso.visible = vis; for (const L of legs) { L.thigh.visible = L.shin.visible = L.knee.visible = L.boot.visible = vis; if (L.holster) L.holster.visible = vis; }
+  if (!vis) return;
+  const gy = -P.crouchOff + P.dip + BODY.rollDip; // roof surface in rig space
+  const head = camLocal, eh = head.y - gy, by = ARM.bodyYaw;
+  const neck = bN.copy(head).add(bA.set(0, -0.2, 0)).addScaledVector(_bf, -0.1);
+  const hipH = clamp(eh * 0.585, 0.3, 1.06);
+  const hips = bH.set(head.x, gy + hipH, head.z).addScaledVector(_bf, -0.11);
+  // torso: yaw + lean toward the neck
+  const tl = bA.subVectors(neck, hips), len = Math.max(0.3, tl.length());
+  const lean = Math.atan2(tl.x * _bf.x + tl.z * _bf.z, Math.max(0.05, tl.y));
+  torso.position.copy(hips); torso.quaternion.setFromAxisAngle(UP, by).multiply(bQ.setFromAxisAngle(bB.set(1, 0, 0), -lean));
+  torso.scale.set(1, len / 0.62, 1);
+  // legs
+  qYawInv.copy(qYaw).invert();
+  const vL = bV.copy(P.vel).applyQuaternion(qYawInv); vL.y = 0; const vs = vL.length();
+  const legScale = clamp(SET.standH * 0.56 / 0.93, 0.82, 1.15), a = 0.46 * legScale, b = 0.45 * legScale;
+  const grounded = P.onGround && P.grabHand < 0 && !P.swingB && !P.anim;
+  const hanging = P.grabHand >= 0 || P.swingB;
+  if (grounded && vs > 0.25 && !P.slide) { const L = clamp(0.35 + vs * 0.1, 0.35, 1.3); BODY.ph += dt * vs / L * Math.PI; }
+  const k = BODY.init ? 1 - Math.exp(-(grounded ? 28 : 14) * dt) : 1; BODY.init = true;
+  for (const L of legs) {
+    const hip = bK.copy(hips).addScaledVector(_br, L.side * 0.1);
+    const tgt = bT.copy(hip); const foot = L.side < 0 ? BODY.fL : BODY.fR;
+    if (P.slide && grounded) {
+      if (L.side < 0) tgt.addScaledVector(_bf, 0.78).setY(gy + 0.09); else tgt.addScaledVector(_bf, 0.22).setY(gy + 0.09);
+    } else if (grounded) {
+      if (vs > 0.25) {
+        const ph = BODY.ph + (L.side < 0 ? 0 : Math.PI), s = Math.sin(ph), c = Math.cos(ph), Lh = clamp(0.35 + vs * 0.1, 0.35, 1.3) * 0.5;
+        tgt.x += vL.x / vs * s * Lh; tgt.z += vL.z / vs * s * Lh; tgt.y = gy + 0.085 + Math.max(0, c) * (0.07 + 0.03 * Math.min(vs, 6));
+      } else { tgt.addScaledVector(_bf, L.side < 0 ? 0.09 : -0.06).setY(gy + 0.085); }
+    } else if (hanging) {
+      tgt.y -= 0.88; tgt.addScaledVector(_bf, Math.sin(time * 2 + L.side) * 0.05);
+    } else {
+      if (P.vel.y > -7) { tgt.y -= 0.55; tgt.addScaledVector(_bf, L.side < 0 ? 0.18 : -0.05); } else { tgt.y -= 0.86; tgt.addScaledVector(_bf, 0.08); }
+    }
+    foot.lerp(tgt, k);
+    const kick = L.side > 0 && KICK.t >= 0;
+    L.thigh.visible = L.shin.visible = L.knee.visible = L.boot.visible = !kick; if (kick) continue;
+    const ankle = bA.copy(foot);
+    const pole = bB.copy(_bf).addScaledVector(_br, L.side * 0.15);
+    const kn = ik2(hip, ankle, a, b, pole, bN);
+    placeSeg(L.thigh, hip, kn); placeSeg(L.shin, kn, ankle);
+    L.knee.position.copy(kn).addScaledVector(_bf, 0.03);
+    L.boot.position.copy(ankle); L.boot.quaternion.setFromAxisAngle(UP, by);
+    if (L.holster) { L.holster.position.lerpVectors(hip, kn, 0.4).addScaledVector(_br, 0.09); L.holster.quaternion.copy(L.thigh.quaternion); }
+  }
+}
+
+
+/* ---------------- HEIGHT CALIBRATION (player + enemies scale to you) ---------------- */
+const EYE_RATIO = 0.936, ENEMY_NOMINAL_H = 1.82;
+function ftIn(h) { let inch = Math.round(h / 0.0254), ft = Math.floor(inch / 12); inch -= ft * 12; return ft + "'" + inch + '"'; }
+function enemyBaseScale() { return clamp(SET.playerH || SET.standH / 0.936, 1.3, 2.2) / 1.82; }
+function applyHeight() {
+  const k = clamp(SET.playerH, 1.3, 2.2) / 1.78;
+  ARM.upper = 0.30 * k; ARM.fore = 0.28 * k;
+  const base = enemyBaseScale();
+  for (const e of ENEMIES) { e.sc = base * (e.scVar || 1); e.root.scale.setScalar(e.sc); }
+}
+function setPlayerHeight(h) {
+  SET.playerH = clamp(h, 1.3, 2.2); SET.standH = SET.playerH * EYE_RATIO; saveSet(); applyHeight(); if (MENU.open) drawMenu();
+}
+const CAL = { t: -1, max: 0, shown: -1 };
+function calText(t) { SUB.queue.length = 0; SUB.cur = { text: t, dur: 99, t: 0.5 }; drawSub(t); }
+function startCalibration() { CAL.t = 0; CAL.max = 0; CAL.shown = -1; SFX.click(); }
+function calibrationUpdate(dt) {
+  if (CAL.t < 0) return;
+  CAL.t += dt;
+  const left = Math.ceil(3 - CAL.t);
+  if (left > 0 && left !== CAL.shown) { CAL.shown = left; calText('HEIGHT CALIBRATION — stand up straight and look straight ahead…  ' + left); sTone(0.12, 0.08, 660, 660, 'sine'); }
+  if (CAL.t > 1.8) CAL.max = Math.max(CAL.max, desktop ? 1.7 : camLocal.y);
+  if (CAL.t >= 3) {
+    CAL.t = -1;
+    if (CAL.max < 1.0) { calText('Calibration failed — stand up fully and try again.'); SUB.cur.dur = 3; return; }
+    SET.manualH = true; setPlayerHeight(CAL.max / EYE_RATIO);
+    calText('Height set: ' + ftIn(SET.playerH) + ' (' + SET.playerH.toFixed(2) + ' m). Enemies now match your size.'); SUB.cur.dur = 3.5;
+    sTone(0.15, 0.25, 880, 880, 'triangle');
+  }
+}
+applyHeight();
+
 /* ---------------- MAIN GAMEPLAY ---------------- */
 function gameplay(dt) {
   qYaw.setFromAxisAngle(UP, P.yaw);
@@ -2360,7 +2704,9 @@ function gameplay(dt) {
     if (tA.lengthSq() > 0.05) runDir.copy(tA.normalize().applyQuaternion(qYaw));
   }
   computeSwing(dt);
-  if (!desktop && P.calibT > 0) { P.calibT -= dt; if (P.calibT <= 0 && camLocal.y > 1.3) { SET.standH = clamp(camLocal.y, 1.3, 2.1); saveSet(); } }
+  { const smg = Math.hypot(IN.lx, IN.ly); if (IN.sprintE) P.sprint = !P.sprint; if (smg < 0.2) { P.sprintIdle = (P.sprintIdle || 0) + dt; if (P.sprintIdle > 0.35) P.sprint = false; } else P.sprintIdle = 0; if (desktop) P.sprint = !!KEY.ShiftLeft; }
+  if (!desktop && P.calibT > 0) { P.calibT -= dt; if (P.calibT <= 0 && camLocal.y > 1.3 && !SET.manualH) { setPlayerHeight(camLocal.y / EYE_RATIO); } }
+  calibrationUpdate(dt);
   // death
   if (P.dead) { P.dead += dt; if (P.dead > 1.0) { respawn(); P.dead = 0; FADE.v = 1; } return; }
   // turning (not mid-air unless hanging/swinging)
@@ -2439,8 +2785,10 @@ function loop(t, frame) {
   if (MENU.open) menuUpdate(); else gameplay(dt);
   prevCam.copy(camLocal);
   updateRig();
+  if (started) handContacts(dt);
   handVisuals();
   armsUpdate(dt);
+  bodyUpdate(dt);
   combatUpdate(dt);
   weatherUpdate(dt);
   overlayUpdate(dt);
