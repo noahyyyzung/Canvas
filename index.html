@@ -15,11 +15,11 @@
 :root{color-scheme:dark;--bg:#0b0a0c;--ink:#ece6e0;--dim:#a39b94;--red:#d3132a}
 *{box-sizing:border-box;min-width:0}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:16px/1.55 Inter,system-ui,sans-serif;overflow:hidden}
-canvas{display:block;position:fixed;inset:0;width:100%!important;height:100%!important}
-#landing{position:fixed;inset:0;display:flex;align-items:flex-end;padding:clamp(16px,4vw,56px);
+canvas{display:block;position:fixed;inset:0;width:100%!important;height:100%!important;z-index:0}
+#landing{position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;padding:clamp(16px,4vw,56px);
   background:linear-gradient(90deg,rgba(8,7,9,.92) 0%,rgba(8,7,9,.72) 42%,rgba(8,7,9,.1) 75%);overflow-y:auto}
 #landing.hidden{display:none}
-.card{max-width:560px}
+.card{max-width:560px;margin-top:auto}
 h1{font:700 clamp(56px,11vw,112px)/0.95 Oswald,Impact,sans-serif;margin:0;color:var(--red);letter-spacing:.02em;text-wrap:balance}
 .sub{font:500 22px/1.2 Oswald,sans-serif;margin:8px 0 18px;color:var(--ink)}
 p{margin:0 0 14px;color:var(--dim);max-width:62ch}
@@ -30,7 +30,8 @@ p{margin:0 0 14px;color:var(--dim);max-width:62ch}
 ul{margin:0 0 14px;padding-left:18px;color:var(--ink);font-size:15px}
 li{margin:3px 0}li b{color:var(--red);font-weight:600}
 .small{font-size:13px;color:#7d766f}
-@media(max-width:600px){#landing{align-items:flex-start;background:rgba(8,7,9,.82)}}
+@media(max-width:600px){#landing{background:rgba(8,7,9,.82)}.card{margin-top:0}}
+@media(max-height:760px){.card{margin-top:0}}
 </style>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
 </head>
