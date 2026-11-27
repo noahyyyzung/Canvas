@@ -119,7 +119,8 @@ function initAudio() {
   if (TEST) return;
   if (AC) { AC.resume(); return; }
   try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
-  master = AC.createGain(); master.gain.value = 0.9; master.connect(AC.destination);
+  const comp = AC.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4; comp.connect(AC.destination);
+  master = AC.createGain(); master.gain.value = 1.15; master.connect(comp);
   noiseBuf = AC.createBuffer(1, AC.sampleRate * 2, AC.sampleRate);
   const d = noiseBuf.getChannelData(0);
   for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -154,6 +155,15 @@ function tn(dest, t0, dur, type, f0, f1, g0, filt) {
 const SFX = {
   hit(p, pow) { if (!AC) return; const t = AC.currentTime, d = voiceAt(p), k = clamp(pow / 5, 0.25, 1.2);
     tn(d, t, 0.18, 'sine', 120, 42, 0.55 * k); nz(d, t, 0.08 + k * 0.05, 'lowpass', 2600, 280, 0.8, 0.55 * k); },
+  // layered punch: deep thump + skin smack + bony snap (head) or meaty thud (body)
+  punch(p, pow, part) { if (!AC) return; const t = AC.currentTime, d = voiceAt(p), k = clamp(pow / 4, 0.4, 1.4), head = part === 'head';
+    tn(d, t, 0.16, 'sine', head ? 170 : 130, 42, 1.0 * k);
+    nz(d, t, 0.065, 'bandpass', head ? 1700 : 1100, head ? 600 : 380, 1.1, 1.0 * k);
+    nz(d, t, 0.03, 'highpass', 4200, 2800, 0.7, (head ? 0.7 : 0.3) * k);
+    if (head) tn(d, t, 0.05, 'square', 260, 90, 0.12 * k); else nz(d, t, 0.14, 'lowpass', 700, 90, 0.8, 0.7 * k);
+    if (k > 1) nz(d, t + 0.01, 0.12, 'lowpass', 400, 60, 0.7, 0.6 * (k - 0.8)); },
+  swish(p) { if (!AC) return; const t = AC.currentTime, d = voiceAt(p); nz(d, t, 0.14, 'bandpass', 700, 2200, 1.8, 0.07); },
+  splat(p) { if (!AC) return; const t = AC.currentTime, d = voiceAt(p); nz(d, t, 0.06, 'lowpass', 1800, 300, 1, 0.12); },
   block(p) { if (!AC) return; const t = AC.currentTime, d = voiceAt(p);
     nz(d, t, 0.07, 'bandpass', 1900, 800, 1.4, 0.55); tn(d, t, 0.06, 'triangle', 320, 170, 0.18); },
   crack(p) { if (!AC) return; const t = AC.currentTime, d = voiceAt(p);
@@ -555,6 +565,9 @@ function buildHand(side) {
     const st = mk(BOX, CM.wrapEdge, inn, 0.037, 0.011, 0.105); st.position.set(0, 0, 0.012); st.rotation.x = a; st.quaternion.setFromAxisAngle(new V3(1, 0, 0), a);
   }
   mk(BOX, CM.wrapEdge, inn, 0.042, 0.094, 0.008).position.set(0, 0, -0.027);       // strap edge behind the knuckles
+  const bloodMat = new THREE.MeshStandardMaterial({ color: 0x3d0207, roughness: 0.2, metalness: 0.1, transparent: true, opacity: 0, depthWrite: false });
+  const blood = mk(BOX, bloodMat, inn, 0.043, 0.095, 0.006); blood.position.set(0, 0, -0.054); // stains soak into the knuckles
+  const blood2 = mk(BOX, bloodMat, inn, 0.044, 0.07, 0.04); blood2.position.set(0, 0.005, -0.038);
   mk(BOX, CM.wrapEdge, inn, 0.037, 0.07, 0.008).position.set(0, -0.006, 0.05);      // strap edge at the wrist
   const fingers = [];
   const ys = [0.031, 0.011, -0.009, -0.029], lens = [[0.038, 0.026, 0.021], [0.042, 0.028, 0.022], [0.039, 0.026, 0.021], [0.03, 0.021, 0.018]];
@@ -577,7 +590,7 @@ function buildHand(side) {
     thumb.push(j); tp = j;
   }
   g.visible = false;
-  return { side, s, g, inner: inn, fingers, thumb };
+  return { side, s, g, inner: inn, fingers, thumb, bloodMat };
 }
 function makeHandState(side) {
   return {
@@ -774,7 +787,8 @@ function btn(side, i) { const g = gp(side); return !!(g && g.buttons[i] && g.but
 function btnV(side, i) { const g = gp(side); return g && g.buttons[i] ? g.buttons[i].value : 0; }
 function haptic(side, k, ms) {
   const g = gp(side); if (!g) return; k = clamp(k, 0, 1);
-  try { if (g.hapticActuators && g.hapticActuators[0]) g.hapticActuators[0].pulse(k, ms); else if (g.vibrationActuator) g.vibrationActuator.playEffect('dual-rumble', { duration: ms, strongMagnitude: k, weakMagnitude: k }); } catch (e) { }
+  try { if (g.hapticActuators && g.hapticActuators[0]) g.hapticActuators[0].pulse(k, ms); } catch (e) { }
+  try { if (g.vibrationActuator && g.vibrationActuator.playEffect) g.vibrationActuator.playEffect('dual-rumble', { duration: ms, strongMagnitude: k, weakMagnitude: k }).catch(() => { }); } catch (e) { }
 }
 const CTRL = { left: null, right: null };
 for (let i = 0; i < 2; i++) {
@@ -928,7 +942,7 @@ function hurtPlayer(dmg, kind, fromPos) {
   P.health = Math.max(G.mode === 'spar' ? 25 : 0, P.health - dmg);
   P.stamina = Math.max(0, P.stamina - (kind === 'body' ? 12 : 5));
   P.dmgFlash = Math.min(1, 0.45 + dmg / 25); P.lastHurt = G.time; P.idleT = 0;
-  SFX.hurt(); haptic('left', 0.9, 120); haptic('right', 0.9, 120);
+  SFX.hurt(); haptic('left', 1, 170); haptic('right', 1, 170);
   if (P.health <= 0) playerDown();
 }
 function updateCondition(dt) {
@@ -991,7 +1005,9 @@ class Enemy {
     this.health = T.hp; this.balance = 100; this.state = 'enter'; this.st = 0; this.cool = rand(0.6, 1.6);
     this.hasToken = false; this.combo = 0; this.atk = null; this.contacted = false;
     this.orbit = Math.atan2(pos.x - P.head.x, pos.z - P.head.z); this.orbitDir = pick([-1, 1]); this.orbitT = rand(2, 4); this.radius = rand(1.9, 2.4);
-    this.sp = { lf: new Spring(70, 10), ls: new Spring(70, 10), tw: new Spring(95, 12), hx: new Spring(130, 11), hy: new Spring(130, 11), hz: new Spring(130, 11), cr: new Spring(45, 9) };
+    this.sp = { lf: new Spring(55, 8), ls: new Spring(55, 8), tw: new Spring(80, 10), hx: new Spring(85, 8), hy: new Spring(85, 8), hz: new Spring(85, 8), cr: new Spring(45, 9),
+      hp: new Spring(75, 7), hyw: new Spring(75, 7), hr: new Spring(75, 7) }; // head pitch / turn / roll snap
+    this.headHits = 0; this.dripT = 0; this.pool = null;
     const J = this.J = {};
     for (const k of ['pelvis', 'chest', 'neck', 'head', 'shL', 'shR', 'elL', 'elR', 'hipL', 'hipR', 'knL', 'knR', 'ftL', 'ftR']) J[k] = new V3();
     this.fist = { L: new V3(), R: new V3() }; this.fistW = { L: new V3(), R: new V3() }; this.fistWPrev = { L: new V3(), R: new V3() };
@@ -1027,7 +1043,10 @@ class Enemy {
     const h = this.mesh.head, dark = new THREE.MeshBasicMaterial({ color: 0x0b0b0b });
     for (const sx of [-0.36, 0.36]) { const eye = m(SPH, dark, h); eye.position.set(sx, 0.12, 0.86); eye.scale.setScalar(0.13); }
     const nose = m(BOX, this.mHead, h); nose.position.set(0, -0.06, 0.95); nose.scale.set(0.16, 0.26, 0.22);
-    this.blood = m(BOX, new THREE.MeshStandardMaterial({ color: 0x5a0a0c, roughness: 0.3 }), h); this.blood.position.set(0, -0.36, 0.9); this.blood.scale.set(0.12, 0.22, 0.08); this.blood.visible = false;
+    const bm = new THREE.MeshStandardMaterial({ color: 0x5a0408, roughness: 0.18, metalness: 0.1 });
+    this.blood = m(BOX, bm, h); this.blood.position.set(0, -0.36, 0.9); this.blood.scale.set(0.12, 0.22, 0.08); this.blood.visible = false;   // nose bleed
+    this.bloodBrow = m(BOX, bm, h); this.bloodBrow.position.set(-0.33, 0.38, 0.86); this.bloodBrow.scale.set(0.2, 0.06, 0.08); this.bloodBrow.rotation.z = 0.4; this.bloodBrow.visible = false; // split brow
+    this.bloodMouth = m(BOX, bm, h); this.bloodMouth.position.set(0.18, -0.58, 0.78); this.bloodMouth.scale.set(0.06, 0.2, 0.06); this.bloodMouth.visible = false; // split lip
     const ex = T.extra;
     if (ex === 'cap') { const c = m(SPH, new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.9 }), h); c.position.set(0, 0.42, -0.02); c.scale.set(1.06, 0.62, 1.06); }
     if (ex === 'beard') { const b = m(BOX, new THREE.MeshStandardMaterial({ color: 0x2a1d14, roughness: 1 }), h); b.position.set(0, -0.55, 0.55); b.scale.set(0.8, 0.42, 0.62); }
@@ -1062,7 +1081,7 @@ class Enemy {
     let faceYaw = Math.atan2(dx, dz), face = true, mvx = 0, mvz = 0, mvSpeed = 0, accel = 7;
     const inj = this.injuryState(), limp = inj >= 3 ? 0.6 : inj >= 2 ? 0.82 : 1;
     sp.lf.t = 0.08; sp.ls.t = 0; sp.tw.t = 0; sp.cr.t = type_crouch(this.type) * s;
-    sp.hx.t = sp.hy.t = sp.hz.t = 0;
+    sp.hx.t = sp.hy.t = sp.hz.t = 0; sp.hp.t = sp.hyw.t = sp.hr.t = 0;
     this.fistMode = 'guard';
     const range = 0.7 * s;
     const goTo = (x, z, spd) => { const ddx = x - this.root.position.x, ddz = z - this.root.position.z, d = Math.hypot(ddx, ddz);
@@ -1188,10 +1207,19 @@ class Enemy {
     this.updateColliders();
     this.bruise();
   }
-  bruise() { // bruising + restrained blood as injuries build up
+  bruise() { // bruising + blood on the face as injuries build up
     const f = 1 - this.health / this.T.hp;
     this.mHead.color.copy(this.skinC).lerp(_bruise, clamp(f * 0.55, 0, 0.55));
-    this.blood.visible = f > 0.45;
+    this.blood.visible = f > 0.3 || this.headHits >= 3;
+    this.bloodBrow.visible = this.headHits >= 2 || f > 0.5;
+    this.bloodMouth.visible = this.headHits >= 4 || f > 0.6;
+    this.blood.scale.y = 0.22 + clamp(this.headHits * 0.04, 0, 0.35);
+    // dripping when hurt
+    if (this.blood.visible && !this.gone) {
+      this.dripT -= G.dt;
+      if (this.dripT <= 0) { this.dripT = rand(0.5, 1.4) / (1 + f); _e1.set(0, -1, 0); _e2.copy(this.headW); _e2.y -= 0.08 * this.s; bleed(_e2, _e1, 1, 0.2); }
+    }
+    if (this.state === 'out' && this.fall.done && !this.pool) this.pool = bloodPool(this.headW);
   }
   separate() {
     for (const o of G.enemies) {
@@ -1288,7 +1316,7 @@ class Enemy {
     const isArm = h.part.startsWith('up') || h.part.startsWith('fo') || h.part.startsWith('fi');
     // fists and forearms held up in guard soak the blow; arms caught mid-strike do not
     const blocked = isArm && !h.part.startsWith('up') && (this.state === 'guard' || this.fistMode === 'faceGuard' || this.fistMode === 'guard') && !this.broken[h.part.endsWith('L') ? 'L' : 'R'];
-    SFX.hit(h.point, h.power * (blocked ? 0.5 : 1));
+    if (blocked) SFX.hit(h.point, h.power * 0.5);
     if (this.state === 'surrender') { this.health = 0; this.knockdown(h.dir, true); return; }
     if (blocked) {
       this.balance -= h.power * 2.5 / T.weight; this.sp.lf.kick(_e1.z * h.power * 0.4);
@@ -1303,18 +1331,24 @@ class Enemy {
     this.health -= dmg;
     this.balance -= dmg * (h.part === 'head' ? 1.9 : 1.3) / T.weight;
     // physical reaction, scaled by where and how hard
-    const k = h.power / Math.sqrt(T.weight);
+    const k = h.power / Math.sqrt(T.weight) * (h.kind === 'elbow' ? 1.25 : 1);
+    SFX.punch(h.point, h.power * (h.kind === 'elbow' ? 1.25 : 1), h.part);
     if (h.part === 'head') {
-      this.sp.hx.kick(_e1.x * k * 0.32); this.sp.hz.kick(_e1.z * k * 0.32); this.sp.hy.kick(Math.max(0, h.dir.y) * k * 0.25);
-      this.sp.lf.kick(_e1.z * k * 1.0); this.sp.ls.kick(_e1.x * k * 0.9);
+      // the head snaps with the blow: pushed, turned and tilted
+      this.sp.hx.kick(_e1.x * k * 0.9); this.sp.hz.kick(_e1.z * k * 0.9); this.sp.hy.kick(Math.max(0, h.dir.y) * k * 0.5);
+      this.sp.hyw.kick(_e1.x * k * 4.2); this.sp.hp.kick(-_e1.z * k * 2.2 - Math.max(0, h.dir.y) * k * 3.5); this.sp.hr.kick(-_e1.x * k * 2.6);
+      this.sp.lf.kick(_e1.z * k * 2.3); this.sp.ls.kick(_e1.x * k * 2.0);
+      this.headHits++;
+      if (h.power > 1.6 && !down) bleed(h.point, h.dir, Math.round(clamp(2 + h.power * 2.2, 3, 16)) + (h.kind === 'elbow' ? 4 : 0), 1);
     } else {
-      this.sp.lf.kick(_e1.z * k * 0.8 + (h.part === 'torso' ? 0.9 * k : 0)); this.sp.ls.kick(_e1.x * k * 0.7);
-      if (h.part === 'torso') this.sp.cr.kick(0.12 * k);
+      this.sp.lf.kick(_e1.z * k * 1.9 + (h.part === 'torso' ? 1.6 * k : 0)); this.sp.ls.kick(_e1.x * k * 1.7);
+      if (h.part === 'torso') { this.sp.cr.kick(0.3 * k); this.sp.hp.kick(1.6 * k); } // doubles over
+      if (h.part === 'torso' && h.power > 3.4) bleed(h.point, h.dir, 2, 0.6);
     }
     this.toLocal(h.point, _e2); _e3.subVectors(_e2, this.J.pelvis);
-    this.sp.tw.kick((_e3.z * _e1.x - _e3.x * _e1.z) * k * 2.2);
-    if (!down) { this.vel.x += h.dir.x * k * 0.16; this.vel.z += h.dir.z * k * 0.16; }
-    if (Math.random() < 0.5) SFX.grunt(this.headW, T.pitch * 1.05, 0.7);
+    this.sp.tw.kick((_e3.z * _e1.x - _e3.x * _e1.z) * k * 4.5);
+    if (!down) { this.vel.x += h.dir.x * k * 0.38; this.vel.z += h.dir.z * k * 0.38; }
+    SFX.grunt(this.headW, T.pitch * rand(1, 1.15), h.part === 'head' ? 1 : 0.8);
     // fractures: a hard strike on an extended arm
     if (isArm && !down) {
       const side = h.part.endsWith('L') ? 'L' : 'R';
@@ -1325,8 +1359,10 @@ class Enemy {
     if (down) return;
     if (this.state === 'grabbed') return;
     if (this.balance <= 0) { this.knockdown(h.dir, false); return; }
-    const heavy = h.power > 3.4 * Math.sqrt(T.weight) || this.balance < 35;
-    if (heavy || this.state === 'windup' && h.power > 2.2) this.stagger(heavy ? rand(0.55, 0.85) : 0.35);
+    const heavy = h.power > 3.2 * Math.sqrt(T.weight) || this.balance < 35;
+    // every solid hit makes them flinch and give ground; heavy ones send them stumbling
+    if (heavy) this.stagger(rand(0.6, 0.95));
+    else if (h.power > 1.5 && this.state !== 'stagger') this.stagger(clamp(0.16 + k * 0.07, 0.2, 0.45));
   }
   fracture(side) {
     this.broken[side] = true; this.health -= 10; this.balance -= 25;
@@ -1430,7 +1466,8 @@ class Enemy {
     SFX.whoosh(this.headW, 1.2); SFX.grunt(this.headW, this.T.pitch, 1);
   }
   wallSlam(spd) {
-    SFX.slam(this.chestW); haptic('left', 0.5, 80); haptic('right', 0.5, 80);
+    SFX.slam(this.chestW); haptic('left', 0.7, 110); haptic('right', 0.7, 110);
+    bleed(this.headW, _e1.set(this.vel.x, 0.2, this.vel.z).normalize(), 8, 0.8);
     const dmg = 10 + spd * 4;
     this.health -= dmg; this.balance = 0;
     _e1.set(this.vel.x, 0, this.vel.z);
@@ -1514,7 +1551,7 @@ class Enemy {
     J.shR.copy(_e1.set(-0.19 * s * w, -0.03 * s, 0).applyQuaternion(q)).add(J.chest);
     J.neck.copy(_e1.set(0, 0.07 * s, 0).applyQuaternion(q)).add(J.chest);
     J.head.copy(_e1.set(0, 0.2 * s, 0.02 * s).applyQuaternion(q)).add(J.chest);
-    J.head.x += clamp(sp.hx.v, -0.15, 0.15) * s; J.head.y += clamp(sp.hy.v, -0.05, 0.08) * s; J.head.z += clamp(sp.hz.v, -0.15, 0.15) * s;
+    J.head.x += clamp(sp.hx.v, -0.22, 0.22) * s; J.head.y += clamp(sp.hy.v, -0.06, 0.1) * s; J.head.z += clamp(sp.hz.v, -0.22, 0.22) * s;
     J.hipL.copy(_e1.set(0.1 * s * w, -0.04 * s, 0).applyQuaternion(_eq.identity())).add(J.pelvis);
     J.hipR.copy(_e1.set(-0.1 * s * w, -0.04 * s, 0)).add(J.pelvis);
     // feet
@@ -1568,7 +1605,8 @@ class Enemy {
     Me.pelvis.position.copy(J.pelvis); Me.pelvis.quaternion.copy(q); Me.pelvis.scale.set(0.33 * s * w, 0.18 * s, 0.21 * s);
     _e1.copy(J.head).addScaledVector(_e2.set(0, 1, 0).applyQuaternion(q), -0.08 * s);
     limb(Me.neck, J.neck, _e1, 0.052 * s * Math.max(1, w * 0.9));
-    Me.head.position.copy(J.head); Me.head.quaternion.copy(q); Me.head.scale.set(0.1 * s, 0.118 * s, 0.108 * s);
+    _eu.set(clamp(sp.hp.v, -0.75, 0.75), clamp(sp.hyw.v, -0.9, 0.9), clamp(sp.hr.v, -0.6, 0.6)); _eq.setFromEuler(_eu);
+    Me.head.position.copy(J.head); Me.head.quaternion.copy(q).multiply(_eq); Me.head.scale.set(0.1 * s, 0.118 * s, 0.108 * s);
     limb(Me.upL, J.shL, J.elL, 0.052 * s * w); limb(Me.foL, J.elL, this.fist.L, 0.045 * s * w);
     limb(Me.upR, J.shR, J.elR, 0.052 * s * w); limb(Me.foR, J.elR, this.fist.R, 0.045 * s * w);
     Me.fiL.position.copy(this.fist.L); Me.fiL.scale.setScalar(0.05 * s * w);
@@ -1694,7 +1732,7 @@ function resolveHand(H, dt) {
   if (envHit) {
     const appr = -H.vel.dot(_envN);
     if (appr > 3.0 && G.time - H.lastWall > 0.5) { // punching brick hurts
-      H.lastWall = G.time; SFX.hit(H.pos, 1.5); haptic(H.side, 0.85, 70);
+      H.lastWall = G.time; SFX.punch(H.pos, 2, 'torso'); haptic(H.side, 1, 100);
       if (G.mode === 'fight') { P.health = Math.max(1, P.health - 2); } P.stamina = Math.max(0, P.stamina - 6);
     } else if (appr > 0.6) haptic(H.side, 0.15, 15);
   }
@@ -1704,12 +1742,60 @@ function strike(H, info, appr) {
   const cost = 2.5 + appr * 1.1; P.stamina = Math.max(0, P.stamina - cost); P.idleT = 0;
   _h3.copy(H.vel).normalize();
   e.receiveHit({ part: info.part, point: H.pos, dir: _h3, power: appr, kind: open ? 'palm' : 'punch', str: strengthFactor(), hand: H.side });
-  haptic(H.side, 0.3 + appr * 0.12, 40 + appr * 8);
+  haptic(H.side, clamp(0.5 + appr * 0.13, 0, 1), 70 + appr * 14);
+  if (info.part === 'head' && appr > 1.6) { H.blood = Math.min(1, (H.blood || 0) + 0.09); H.model.bloodMat.opacity = H.blood * 0.85; }
   H.lastStrike = G.time; H.offVel.addScaledVector(info.n, appr * 0.35);
   G.punchStreak = G.lastPunchHand === H.side ? G.punchStreak + 1 : 0; G.lastPunchHand = H.side;
 }
 
 // ---------- ELBOWS: bent arm, close to the body, elbow drives into a target ----------
+// ---------- BLOOD: droplets that splat on the ground and walls ----------
+const FX = { drops: [], decals: [], di: 0, pools: [] };
+const BLOOD_M = new THREE.MeshStandardMaterial({ color: 0x6a0610, roughness: 0.2, metalness: 0.05 });
+const DECAL_M = new THREE.MeshStandardMaterial({ color: 0x3a0207, roughness: 0.12, metalness: 0.25, transparent: true, opacity: 0.92, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+const DROP_GEO = new THREE.SphereGeometry(1, 6, 4), DECAL_GEO = new THREE.CircleGeometry(1, 14);
+for (let i = 0; i < 110; i++) { const m = new THREE.Mesh(DROP_GEO, BLOOD_M); m.visible = false; scene.add(m); FX.drops.push({ m, v: new V3(), on: false, r: 0.01 }); }
+for (let i = 0; i < 90; i++) { const m = new THREE.Mesh(DECAL_GEO, DECAL_M); m.visible = false; scene.add(m); FX.decals.push(m); }
+function bleed(p, dir, n, force) {
+  for (let i = 0; i < n; i++) {
+    const d = FX.drops.find(x => !x.on); if (!d) return;
+    d.on = true; d.m.visible = true; d.m.position.copy(p);
+    d.v.set(dir.x, Math.max(dir.y, 0), dir.z).multiplyScalar(rand(0.6, 2.4) * force).add(_h1.set(rand(-0.7, 0.7), rand(0.2, 1.4), rand(-0.7, 0.7)).multiplyScalar(force));
+    d.r = rand(0.004, 0.012); d.m.scale.set(d.r, d.r * 1.6, d.r);
+  }
+}
+function decalAt(x, y, z, r, wall) {
+  const m = FX.decals[FX.di++ % FX.decals.length];
+  m.visible = true; m.scale.set(r * rand(0.8, 1.3), r, 1);
+  if (wall === 0) { m.position.set(x, 0.009 + (FX.di % 12) * 0.0004, z); m.rotation.set(-Math.PI / 2, 0, rand(0, 6.28)); m.quaternion.setFromEuler(m.rotation); }
+  else { m.position.set(wall * 2.495, y, z); m.rotation.set(0, -wall * Math.PI / 2, rand(0, 6.28)); m.quaternion.setFromEuler(m.rotation); }
+  return m;
+}
+function bloodPool(p) { const m = decalAt(p.x, 0, p.z, 0.02, 0); FX.pools.push({ m, t: 0 }); return m; }
+function updateFX(dt) {
+  for (const d of FX.drops) {
+    if (!d.on) continue;
+    d.v.y -= 9.8 * dt; d.m.position.addScaledVector(d.v, dt);
+    const P2 = d.m.position;
+    if (Math.abs(P2.x) > 2.48 && P2.z > -13.3) { decalAt(0, P2.y, P2.z, d.r * rand(2, 4), Math.sign(P2.x)); d.on = false; d.m.visible = false; continue; }
+    if (P2.y <= 0.01) { decalAt(P2.x, 0, P2.z, d.r * rand(2.2, 4.5), 0); d.on = false; d.m.visible = false; }
+  }
+  for (const pl of FX.pools) if (pl.t < 1) { pl.t = Math.min(1, pl.t + dt / 7); const r = 0.03 + 0.15 * pl.t; pl.m.scale.set(r * 1.2, r, 1); }
+}
+function clearFX() {
+  for (const d of FX.drops) { d.on = false; d.m.visible = false; }
+  for (const m of FX.decals) m.visible = false; FX.pools = []; FX.di = 0;
+  for (const H of HL) { H.blood = 0; H.model.bloodMat.opacity = 0; }
+}
+// fast swings make a swish
+function swishCheck() {
+  for (const H of HL) {
+    const sp = H.vel.length();
+    if (sp > 3.2 && !H.swung && H.has) { H.swung = true; SFX.swish(H.pos); }
+    if (sp < 1.5) H.swung = false;
+  }
+}
+
 function updateElbows() {
   for (const H of HL) {
     if (!H.has || H.grab || G.time - H.lastElbow < 0.35) continue;
@@ -1727,7 +1813,7 @@ function updateElbows() {
         if (_h2.dot(H.elbowVel) <= 0) continue;
         _h3.copy(H.elbowVel).normalize();
         e.receiveHit({ part: c.part, point: H.elbow, dir: _h3, power: spd * 1.15, kind: 'elbow', str: strengthFactor(), hand: H.side });
-        haptic(H.side, 0.8, 60); P.stamina = Math.max(0, P.stamina - (4 + spd)); P.idleT = 0;
+        haptic(H.side, 1, 110); P.stamina = Math.max(0, P.stamina - (4 + spd)); P.idleT = 0;
         H.lastElbow = G.time; done = true; break;
       }
     }
@@ -1753,7 +1839,7 @@ function tryGrab(H) {
   if (!best) return;
   H.grab = { e: best.e, part: best.part, local: best.e.toLocal(H.pos, new V3()) };
   best.e.grabbedBy(H, best.part);
-  haptic(H.side, 0.5, 40); SFX.block(H.pos);
+  haptic(H.side, 0.6, 60); SFX.block(H.pos);
 }
 function releaseGrab(H) {
   const e = H.grab.e, last = e.grabs.length === 1;
@@ -1847,7 +1933,7 @@ function blockHit(e, H, p, fdir, fsp) {
   const parry = H.vel.dot(fdir) < -1.6;
   e.onStrikeContact(parry ? 'parry' : 'block', H);
   H.offVel.addScaledVector(fdir, Math.min(2.2, fsp * 0.35) * (parry ? 0.4 : 1));
-  haptic(H.side, parry ? 0.55 : 0.8, 70); SFX.block(p);
+  haptic(H.side, parry ? 0.8 : 1, parry ? 80 : 110); SFX.block(p);
   const cost = (parry ? 4 : 7) * (P.guard ? 0.55 : 1) * (P.stamina < 20 ? 1.5 : 1) * (e.atk.def.big ? 1.6 : 1);
   P.stamina = Math.max(0, P.stamina - cost); P.idleT = 0;
   if (P.stamina <= 0 && !parry) hurtPlayer(e.T.dmg * e.atk.def.dmg * 0.4, 'head'); // guard broken through
@@ -1900,8 +1986,8 @@ function recentre(x, z) {
   rig.position.x = x - _h2.x; rig.position.z = z - _h2.z;
   headToWorld(); for (const H of HL) H.init = false;
 }
-function startFight() { clearEnemies(); resetPlayer(); hideMenu(); G.mode = 'fight'; G.paused = false; startWave(1); }
-function startSpar() { clearEnemies(); resetPlayer(); hideMenu(); G.mode = 'spar'; G.paused = false; spawn('spar', 'street'); banner('SPARRING', 'Slow telegraphs, light hits. Learn the feel.', 3.5); }
+function startFight() { clearEnemies(); clearFX(); resetPlayer(); hideMenu(); G.mode = 'fight'; G.paused = false; startWave(1); }
+function startSpar() { clearEnemies(); clearFX(); resetPlayer(); hideMenu(); G.mode = 'spar'; G.paused = false; spawn('spar', 'street'); banner('SPARRING', 'Slow telegraphs, light hits. Learn the feel.', 3.5); }
 function startWave(n) {
   G.wave = n; G.waveT = 0;
   G.enemies = G.enemies.filter(e => { if (e.gone || e.state === 'flee') { if (!e.gone) e.remove(); return false; } return true; });
@@ -2081,7 +2167,7 @@ function desktopPreview(dt) {
   P.head.set(0, 1.6, 2.5); P.fwd.set(0, 0, -1); P.right.set(1, 0, 0);
   camera.position.set(Math.sin(G.time * 0.12) * 0.6, 1.62, 3.4); camera.rotation.set(-0.06, Math.sin(G.time * 0.12) * 0.12, 0);
   for (const e of G.enemies) e.update(dt);
-  director(dt); updateGame(dt); updateFigure();
+  director(dt); updateGame(dt); updateFigure(); updateFX(dt);
   updateRain(dt, _h1.set(0, 0, 0));
 }
 
@@ -2116,7 +2202,8 @@ function loop(t, frame) {
   if (!G.paused) updateGrabs(dt);
   updateHandVisuals(); updateArms(); updateBody(dt);
   const live = !G.paused && (G.mode === 'fight' || G.mode === 'spar');
-  if (live) { updateElbows(); enemyAttacks(dt); updateCondition(dt); }
+  if (live) { updateElbows(); enemyAttacks(dt); updateCondition(dt); swishCheck(); }
+  updateFX(dt);
   updateGame(dt); updateMenu(dt); updateBanner(dt); updateVignette(dt); updateFigure();
   watchT -= dt; if (watchT <= 0) { drawWatch(); watchT = 0.12; }
   updateRain(dt, P.head);
