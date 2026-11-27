@@ -50,6 +50,8 @@ li{margin:3px 0}li b{color:var(--red);font-weight:600}
       <li><b>Push</b> press an open hand into a chest · <b>Dodge</b> lean or step</li>
       <li><b>Grab</b> grip on a collar, arm or wrist · <b>Throw</b> swing and let go</li>
       <li><b>Over-the-shoulder</b> two-hand grab, pull up and back over your head</li>
+      <li><b>Lift</b> grab a collar and raise your hands · <b>Pin</b> shove them into a wall</li>
+      <li><b>Pick up</b> bottles, bricks, a trash can lid (shield), a pipe — swing or throw them</li>
       <li><b>Move</b> left stick · <b>Turn</b> right stick · <b>Jump</b> swing both arms up · <b>Pause</b> Y / B</li>
     </ul>
     <p class="small">Out of a fight, swing your arms while holding the stick to run faster. When enemies are close, the stick moves you so your arms stay free. Stand straight and press Calibrate Height in the menu.</p>
@@ -163,6 +165,18 @@ const SFX = {
     if (head) tn(d, t, 0.05, 'square', 260, 90, 0.12 * k); else nz(d, t, 0.14, 'lowpass', 700, 90, 0.8, 0.7 * k);
     if (k > 1) nz(d, t + 0.01, 0.12, 'lowpass', 400, 60, 0.7, 0.6 * (k - 0.8)); },
   swish(p) { if (!AC) return; const t = AC.currentTime, d = voiceAt(p); nz(d, t, 0.14, 'bandpass', 700, 2200, 1.8, 0.07); },
+  glass(p) { if (!AC) return; const t = AC.currentTime, d = voiceAt(p);
+    nz(d, t, 0.08, 'highpass', 3500, 2500, 0.8, 0.9); nz(d, t, 0.25, 'bandpass', 5200, 3000, 4, 0.35);
+    for (let i = 0; i < 6; i++) tn(d, t + 0.02 + i * rand(0.02, 0.06), 0.09, 'sine', rand(2600, 5200), rand(2000, 4000), 0.05); },
+  grab(p) { if (!AC) return; const t = AC.currentTime, d = voiceAt(p); nz(d, t, 0.07, 'bandpass', 900, 500, 1.2, 0.22); },
+  propHit(p, kind, spd) { if (!AC) return; const t = AC.currentTime, d = voiceAt(p), k = clamp(spd / 5, 0.3, 1.3);
+    if (kind === 'lid' || kind === 'pipe' || kind === 'can') { tn(d, t, kind === 'pipe' ? 0.5 : 0.35, 'triangle', kind === 'pipe' ? 520 : 380, kind === 'pipe' ? 480 : 300, 0.25 * k); nz(d, t, 0.06, 'bandpass', 2500, 1200, 2, 0.6 * k); }
+    tn(d, t, 0.14, 'sine', 150, 45, 0.9 * k); nz(d, t, 0.06, 'bandpass', 1200, 450, 1.1, 0.8 * k); },
+  clatter(p, kind, spd = 1.5) { if (!AC) return; const t = AC.currentTime, d = voiceAt(p), k = clamp(spd / 4, 0.15, 0.8);
+    if (kind === 'brick' || kind === 'box') { nz(d, t, 0.1, 'lowpass', 900, 150, 0.8, 0.5 * k); return; }
+    if (kind === 'bottle') { tn(d, t, 0.12, 'sine', 1900, 1700, 0.08 * k); nz(d, t, 0.04, 'highpass', 3000, 2500, 0.7, 0.2 * k); return; }
+    tn(d, t, 0.25, 'triangle', kind === 'pipe' ? 620 : 420, kind === 'pipe' ? 600 : 360, 0.15 * k); nz(d, t, 0.05, 'bandpass', 2400, 1500, 2, 0.3 * k); },
+  clang(p) { if (!AC) return; const t = AC.currentTime, d = voiceAt(p); tn(d, t, 0.45, 'triangle', 360, 330, 0.3); nz(d, t, 0.07, 'bandpass', 2600, 1400, 2, 0.7); tn(d, t, 0.1, 'sine', 140, 60, 0.6); },
   splat(p) { if (!AC) return; const t = AC.currentTime, d = voiceAt(p); nz(d, t, 0.06, 'lowpass', 1800, 300, 1, 0.12); },
   block(p) { if (!AC) return; const t = AC.currentTime, d = voiceAt(p);
     nz(d, t, 0.07, 'bandpass', 1900, 800, 1.4, 0.55); tn(d, t, 0.06, 'triangle', 320, 170, 0.18); },
@@ -597,7 +611,7 @@ function makeHandState(side) {
     side, model: buildHand(side), target: new V3(), pos: new V3(), q: new QT(), vel: new V3(), prevLocal: new V3(), has: false, init: false,
     contact: false, cNormal: new V3(), lastStrike: -9, lastWall: -9, grip: 0, trig: 0, gripPrev: 0, grab: null, releaseT: -9, releaseVel: new V3(),
     off: new V3(), offVel: new V3(), elbow: new V3(), elbowPrevL: new V3(), elbowVel: new V3(), shoulder: new V3(), lastElbow: -9,
-    lowT: 0, localY: 0, localVy: 0, tip: new V3(), punchSeen: false, ctrlPos: new V3(),
+    lowT: 0, localY: 0, localVy: 0, tip: new V3(), punchSeen: false, ctrlPos: new V3(), prop: null, propQ: null, propOff: null, angVel: new V3(), qPrevL: new QT(),
     rings: [0, 1, 2, 3].map(() => mk(CYL, CM.wrapEdge)),
     upper: mk(CYL, CM.suit), upperStripe: mk(CYL, CM.panel), fore: mk(CYL, CM.suit), foreStripe: mk(CYL, CM.wrap), elbowBall: mk(SPH, CM.suit), shoulderBall: mk(SPH, CM.panel),
   };
@@ -796,7 +810,7 @@ for (let i = 0; i < 2; i++) {
   grip.addEventListener('connected', e => { CTRL[e.data.handedness] = { grip, src: e.data }; });
   grip.addEventListener('disconnected', () => { for (const k of ['left', 'right']) if (CTRL[k] && CTRL[k].grip === grip) CTRL[k] = null; });
 }
-const _hl = new V3(), _hq = new QT(), _t1 = new V3(), _t2 = new V3(), _t3 = new V3();
+const _hl = new V3(), _hq = new QT(), _aq = new QT(), _t1 = new V3(), _t2 = new V3(), _t3 = new V3();
 
 function readHead(frame) {
   let ok = false;
@@ -841,6 +855,12 @@ function readHands(dt) {
     H.target.copy(HAND_OFF).applyQuaternion(H.q).add(H.ctrlPos).add(H.off);
     if (!H.init) { H.pos.copy(H.target); H.init = true; }
     H.gripPrev = H.grip; H.grip = btnV(H.side, 1); H.trig = btnV(H.side, 0);
+    // angular velocity (for spinning throws)
+    _aq.copy(H.qPrevL).invert().premultiply(_hq); H.qPrevL.copy(_hq);
+    if (_aq.w < 0) _aq.set(-_aq.x, -_aq.y, -_aq.z, -_aq.w);
+    const sa = Math.sqrt(_aq.x * _aq.x + _aq.y * _aq.y + _aq.z * _aq.z), ang = 2 * Math.atan2(sa, _aq.w);
+    if (sa > 1e-6) _t3.set(_aq.x / sa, _aq.y / sa, _aq.z / sa).multiplyScalar(Math.min(25, ang / Math.max(dt, 1e-3))).applyQuaternion(rigQ); else _t3.set(0, 0, 0);
+    H.angVel.lerp(_t3, 0.5);
     if (H.localY < P.headL.y - 0.42) H.lowT = G.time;
     // shoulder estimate from head + body yaw
     const sd = H.side === 'right' ? -1 : 1;
@@ -1019,6 +1039,7 @@ class Enemy {
     this.pushT = 0; this.lastGroan = G.time; this.headW = new V3(); this.chestW = new V3(); this.distToPlayer = 9;
     this.strikeS = new V3(); this.strikeT = new V3(); this.strikeC = new V3();
     this.osh = null; this.throwPow = 0;
+    this.lift = 0; this.liftV = 0; this.liftDrop = 0; this.pinnedT = -9; this.lastPinSlam = -9;
     this.build(); this.syncTransforms();
     for (const f of this.feet) { this.toWorld(_e1.set(f.side * 0.13 * this.s * this.w, 0, 0), f.pos); f.pos.y = 0; }
     this.pose(0.016); this.updateColliders();
@@ -1156,8 +1177,9 @@ class Enemy {
         break;
       case 'grabbed':
         this.fistMode = 'guard'; accel = 0; face = false;
-        this.struggle += dt;
-        sp.lf.t = 0.15;
+        // pinned to a wall or lifted off their feet, they struggle less effectively
+        this.struggle += dt * (G.time - this.pinnedT < 0.4 ? 0.45 : 1) * (this.lift > 0.1 ? 0.6 : 1);
+        sp.lf.t = this.lift > 0.05 ? -0.1 : 0.15;
         if (this.struggle > (this.grabs.length > 1 ? 2.8 : 1.7) * Math.sqrt(T.weight) && this.balance > 25) this.breakFree();
         break;
       case 'thrown': {
@@ -1199,10 +1221,25 @@ class Enemy {
         const spd = Math.hypot(this.vel.x, this.vel.z);
         if (spd > 1.6) this.wallSlam(spd); else this.vel.multiplyScalar(0.3);
       }
+      if (hitWall && this.state === 'grabbed') { // shoved into the wall while you hold them
+        const spd = Math.hypot(this.vel.x, this.vel.z);
+        if (spd > 1.6 && G.time - this.lastPinSlam > 0.7) this.pinSlam(spd);
+        this.pinnedT = G.time;
+      }
+      if (this.gone) return;
       if (face) { let d = faceYaw - this.yaw; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; this.yaw += d * expK(this.state === 'stagger' ? 3 : 8, dt); }
     }
+    // lifted off the ground: held up while grabbed, falls when let go
+    if (this.lift > 0 || this.liftV !== 0) {
+      if (this.state !== 'grabbed') {
+        this.liftV -= 9.8 * dt; this.lift += this.liftV * dt;
+        if (this.lift <= 0) { this.lift = 0; this.liftV = 0; this.land(); }
+      }
+      this.root.position.y = this.lift;
+    }
+    if (this.state === 'down' || this.state === 'out') return;
     this.syncTransforms();
-    if (this.standing()) this.gait(dt);
+    if (this.standing() && this.lift < 0.02) this.gait(dt);
     this.pose(dt);
     this.updateColliders();
     this.bruise();
@@ -1328,6 +1365,7 @@ class Enemy {
     dmg *= h.part === 'head' ? 1.25 : h.part === 'torso' ? 0.9 : isArm ? 0.45 : 0.6;
     if (h.kind === 'elbow') dmg *= 1.35; else if (h.kind === 'palm') dmg *= 0.7;
     if (down) dmg *= 0.4;
+    if (this.state === 'grabbed' && G.time - this.pinnedT < 0.4) dmg *= 1.25; // pinned: nowhere to roll with it
     this.health -= dmg;
     this.balance -= dmg * (h.part === 'head' ? 1.9 : 1.3) / T.weight;
     // physical reaction, scaled by where and how hard
@@ -1393,6 +1431,7 @@ class Enemy {
   }
   knockdown(dirW, permanent) {
     this.releaseToken();
+    this.lift = 0; this.liftV = 0; this.liftDrop = 0; this.root.position.y = 0;
     for (const H of this.grabs.slice()) dropGrab(H, false);
     _e4.set(dirW.x, 0, dirW.z); if (_e4.lengthSq() < 1e-4) _e4.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)); _e4.normalize();
     const L = 1.75 * this.s, px = this.root.position.x, pz = this.root.position.z;
@@ -1464,6 +1503,22 @@ class Enemy {
     this.throwPow = power / Math.sqrt(this.T.weight); this.balance -= 25 + power * 4;
     this.releaseToken(); this.setState('thrown');
     SFX.whoosh(this.headW, 1.2); SFX.grunt(this.headW, this.T.pitch, 1);
+  }
+  land() {
+    const drop = this.liftDrop; this.liftDrop = 0; this.root.position.y = 0; this.syncTransforms();
+    for (const f of this.feet) { this.toWorld(_e1.set(f.side * 0.13 * this.s * this.w, 0, 0), f.pos); f.pos.y = 0; f.t = 1; }
+    if (drop < 0.15 || this.state === 'thrown') return;
+    SFX.fall(this.headW);
+    if (this.balance < 45) this.knockdown(_e2.set(this.vel.x, 0, this.vel.z), false); else this.stagger(0.55);
+  }
+  pinSlam(spd) {
+    const dmg = (5 + spd * 3) * (G.mode === 'spar' ? 0.6 : 1);
+    this.health -= dmg; this.balance -= 25; this.lastPinSlam = G.time;
+    SFX.slam(this.chestW); haptic('left', 0.85, 110); haptic('right', 0.85, 110);
+    bleed(this.headW, _e1.set(this.vel.x, 0.2, this.vel.z).normalize(), 5, 0.6);
+    this.sp.lf.kick(-3); this.sp.hp.kick(-3); this.vel.multiplyScalar(0.2);
+    SFX.grunt(this.headW, this.T.pitch * 1.1, 1.2);
+    if (this.health <= 0) { this.health = 0; this.knockdown(_e1, true); }
   }
   wallSlam(spd) {
     SFX.slam(this.chestW); haptic('left', 0.7, 110); haptic('right', 0.7, 110);
@@ -1557,7 +1612,10 @@ class Enemy {
     // feet
     for (let i = 0; i < 2; i++) {
       const f = this.feet[i], out = i === 0 ? J.ftL : J.ftR, sd = f.side;
-      if (mode === 'stand') { this.toLocal(f.pos, out); out.y = (f.lift || 0) + 0.03 * s; }
+      if (mode === 'stand' && this.lift > 0.02) { // feet dangle and kick
+        const kick = Math.sin(G.time * 10 + sd * 1.7) * 0.09 * s * (this.state === 'grabbed' ? 1 : 0.3);
+        out.set(sd * 0.12 * s, 0.04 * s + Math.max(0, kick) * 0.5, 0.04 * s + kick);
+      } else if (mode === 'stand') { this.toLocal(f.pos, out); out.y = (f.lift || 0) + 0.03 * s; }
       else if (mode === 'kneel') out.set(sd * 0.13 * s, 0.03 * s, -0.4 * s);
       else if (mode === 'slump') out.set(sd * 0.16 * s, 0.05 * s, lerp(0, 0.6, this.slumpK) * s);
       else out.set(sd * 0.12 * s, 0.03 * s, 0.02 * s);
@@ -1642,6 +1700,7 @@ class Enemy {
     this.fistW.L.copy(c[4].a); this.fistW.R.copy(c[7].a);
   }
   placeAt(x, z) {
+    this.lift = 0; this.liftV = 0; this.fallQ.identity(); this.pivotOff.set(0, 0, 0); this.slumpK = 0; this.fall.ang = 0;
     this.root.position.set(x, 0, z); this.syncTransforms();
     for (const f of this.feet) { this.toWorld(_e1.set(f.side * 0.13 * this.s * this.w, 0, 0), f.pos); f.pos.y = 0; f.t = 1; }
   }
@@ -1653,6 +1712,245 @@ class Enemy {
 }
 const _bruise = new THREE.Color(0x6e3346);
 function type_crouch(t) { return t === 'fast' ? 0.06 : t === 'trained' ? 0.05 : t === 'brawler' ? 0.03 : 0.035; }
+// ============================================================
+// Part E: improvised props — pick up, swing, throw, shield
+// ============================================================
+const PM = {
+  glass: new THREE.MeshStandardMaterial({ color: 0x2f5220, roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.82 }),
+  glassB: new THREE.MeshStandardMaterial({ color: 0x5a3414, roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.85 }),
+  can: new THREE.MeshStandardMaterial({ color: 0x8e949b, roughness: 0.3, metalness: 0.85 }),
+  canLabel: new THREE.MeshStandardMaterial({ color: 0x7a1b1b, roughness: 0.4, metalness: 0.5 }),
+  brick: new THREE.MeshStandardMaterial({ color: 0x7c3a28, roughness: 0.95 }),
+  lid: new THREE.MeshStandardMaterial({ color: 0x6f7377, roughness: 0.45, metalness: 0.8 }),
+  pipe: new THREE.MeshStandardMaterial({ color: 0x3b3f44, roughness: 0.5, metalness: 0.75 }),
+  box: new THREE.MeshStandardMaterial({ color: 0x8a6b45, roughness: 0.95 }),
+  tape: new THREE.MeshStandardMaterial({ color: 0xb39a6a, roughness: 0.7 }),
+  shard: new THREE.MeshStandardMaterial({ color: 0x3d6a2a, roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.9 }),
+};
+const _p1 = new V3(), _p2 = new V3(), _p3 = new V3(), _pq = new QT(), _pq2 = new QT();
+const RX = (a) => new QT().setFromAxisAngle(new V3(1, 0, 0), a), RY = (a) => new QT().setFromAxisAngle(new V3(0, 1, 0), a), RZ = (a) => new QT().setFromAxisAngle(new V3(0, 0, 1), a);
+// kind: geometry builder, hit radius, ground radius, mass, damage factor, how it sits in the hand, resting pose
+const PROP_DEF = {
+  bottle: { rHit: 0.06, rG: 0.034, mass: 0.6, dmg: 1.05, breakable: true, hold: { off: new V3(0, 0, 0.1), q: RX(-Math.PI / 2) }, lie: RZ(Math.PI / 2),
+    build(g) { const m = Math.random() < 0.5 ? PM.glass : PM.glassB;
+      const b = new THREE.Mesh(CYL, m); b.scale.set(0.034, 0.19, 0.034); b.position.y = -0.03; g.add(b);
+      const sh = new THREE.Mesh(SPH, m); sh.scale.set(0.034, 0.03, 0.034); sh.position.y = 0.065; g.add(sh);
+      const n = new THREE.Mesh(CYL, m); n.scale.set(0.013, 0.08, 0.013); n.position.y = 0.11; g.add(n); } },
+  can: { rHit: 0.045, rG: 0.033, mass: 0.25, dmg: 0.35, hold: { off: new V3(0, 0, 0), q: RX(-Math.PI / 2) }, lie: RZ(Math.PI / 2),
+    build(g) { const c = new THREE.Mesh(CYL, PM.can); c.scale.set(0.033, 0.122, 0.033); g.add(c);
+      const l = new THREE.Mesh(CYL, PM.canLabel); l.scale.set(0.0335, 0.07, 0.0335); g.add(l); } },
+  brick: { rHit: 0.08, rG: 0.033, mass: 2.3, dmg: 1.6, hold: { off: new V3(0, -0.01, 0), q: RY(Math.PI / 2) }, lie: new QT(),
+    build(g) { const b = new THREE.Mesh(BOX, PM.brick); b.scale.set(0.2, 0.065, 0.095); g.add(b); } },
+  lid: { rHit: 0.2, rG: 0.016, mass: 1.3, dmg: 0.9, shield: true, hold: { off: new V3(0, -0.07, 0), q: RX(Math.PI) }, lie: new QT(),
+    build(g) { const d = new THREE.Mesh(CYL, PM.lid); d.scale.set(0.27, 0.018, 0.27); g.add(d);
+      const r = new THREE.Mesh(CYL, PM.lid); r.scale.set(0.11, 0.03, 0.11); r.position.y = 0.012; g.add(r);
+      const h = new THREE.Mesh(BOX, PM.pipe); h.scale.set(0.12, 0.025, 0.025); h.position.y = -0.03; g.add(h); } },
+  pipe: { rHit: 0.035, rG: 0.022, mass: 1.6, dmg: 1.45, pipe: 0.38, hold: { off: new V3(0, 0, 0), q: RX(-Math.PI / 2) }, lie: RZ(Math.PI / 2),
+    build(g) { const p = new THREE.Mesh(CYL, PM.pipe); p.scale.set(0.022, 0.76, 0.022); g.add(p);
+      const c = new THREE.Mesh(CYL, PM.pipe); c.scale.set(0.03, 0.05, 0.03); c.position.y = 0.36; g.add(c); } },
+  box: { rHit: 0.17, rG: 0.125, mass: 1.0, dmg: 0.5, hold: { off: new V3(0, -0.15, 0), q: new QT() }, lie: new QT(),
+    build(g) { const b = new THREE.Mesh(BOX, PM.box); b.scale.set(0.3, 0.25, 0.3); g.add(b);
+      const t = new THREE.Mesh(BOX, PM.tape); t.scale.set(0.06, 0.252, 0.302); g.add(t); } },
+};
+// where things lie around the alley at the start of every fight
+const PROP_LAYOUT = [
+  ['bottle', -1.7, 1.25, -2.2], ['bottle', 1.9, 0, 3.0], ['bottle', 1.6, 0, -5.4], ['bottle', -2.0, 0, 7.6],
+  ['can', -1.0, 0, -0.6], ['can', 0.8, 0, 5.8], ['brick', 1.8, 0, -4.6], ['brick', -1.7, 0, 4.4],
+  ['lid', -1.2, 0, -1.2], ['pipe', -1.9, 0, -8.0], ['box', 1.9, 0, 8.6],
+];
+const PROPS = [];
+class Prop {
+  constructor(kind) {
+    this.kind = kind; this.D = PROP_DEF[kind];
+    this.g = new THREE.Group(); this.D.build(this.g); scene.add(this.g);
+    this.pos = this.g.position; this.q = this.g.quaternion;
+    this.v = new V3(); this.w = new V3(); this.held = null; this.rest = false; this.gone = false;
+    this.prevPts = [new V3(), new V3(), new V3()]; this.pts = [new V3(), new V3(), new V3()]; this.lastHit = -9; this.thrownT = -9;
+  }
+  place(x, y, z) {
+    this.gone = false; this.g.visible = true; this.held = null;
+    this.q.copy(_pq.setFromAxisAngle(UP, rand(0, 6.28))).multiply(this.D.lie);
+    this.pos.set(x, y + this.D.rG + 0.002, z); this.v.set(0, 0, 0); this.w.set(0, 0, 0); this.rest = true;
+    this.samplePts(); for (let i = 0; i < 3; i++) this.prevPts[i].copy(this.pts[i]);
+  }
+  axis(out) { return out.set(0, 1, 0).applyQuaternion(this.q); }
+  samplePts() { // hit sample points (pipe: along its length)
+    if (this.D.pipe) { this.axis(_p1); for (let i = 0; i < 3; i++) this.pts[i].copy(this.pos).addScaledVector(_p1, (i - 1) * this.D.pipe); }
+    else for (let i = 0; i < 3; i++) this.pts[i].copy(this.pos);
+  }
+  distTo(p) {
+    if (this.D.pipe) { this.axis(_p1); _p2.copy(this.pos).addScaledVector(_p1, -this.D.pipe); _p3.copy(this.pos).addScaledVector(_p1, this.D.pipe); closestOnSeg(p, _p2, _p3, _p1); return p.distanceTo(_p1); }
+    return p.distanceTo(this.pos);
+  }
+  smash() {
+    this.gone = true; this.g.visible = false;
+    if (this.held) { this.held.prop = null; this.held = null; }
+    SFX.glass(this.pos); shards(this.pos, this.v);
+  }
+}
+function buildProps() { for (const [k] of PROP_LAYOUT) PROPS.push(new Prop(k)); resetProps(); }
+function resetProps() { PROP_LAYOUT.forEach(([k, x, y, z], i) => PROPS[i].place(x, y, z)); for (const H of HL) H.prop = null; }
+
+// glass shards
+const SHARDS = [];
+for (let i = 0; i < 36; i++) { const m = new THREE.Mesh(BOX, PM.shard); m.visible = false; scene.add(m); SHARDS.push({ m, v: new V3(), t: 0 }); }
+function shards(p, v) {
+  let n = 0;
+  for (const s of SHARDS) {
+    if (s.t > 0) continue; if (n++ > 12) break;
+    s.t = rand(1.5, 3); s.m.visible = true; s.m.position.copy(p);
+    s.v.copy(v).multiplyScalar(0.3).add(_p1.set(rand(-1.5, 1.5), rand(0.3, 2.2), rand(-1.5, 1.5)));
+    const k = rand(0.008, 0.022); s.m.scale.set(k, k * 0.3, k * 1.6); s.m.rotation.set(rand(0, 6), rand(0, 6), rand(0, 6)); s.m.quaternion.setFromEuler(s.m.rotation);
+  }
+}
+function updateShards(dt) {
+  for (const s of SHARDS) {
+    if (s.t <= 0) continue; s.t -= dt;
+    if (s.m.position.y > 0.004) { s.v.y -= 9.8 * dt; s.m.position.addScaledVector(s.v, dt); if (s.m.position.y < 0.004) { s.m.position.y = 0.004; s.v.set(0, 0, 0); } }
+    if (s.t <= 0) s.m.visible = false;
+  }
+}
+
+// ---------- grabbing a prop ----------
+function nearestProp(H) {
+  let best = null, bd = 1e9;
+  for (const p of PROPS) {
+    if (p.gone || p.held) continue;
+    const d = p.distTo(H.pos) - p.D.rHit;
+    if (d < 0.07 && d < bd) { bd = d; best = p; }
+  }
+  return best ? { p: best, d: bd } : null;
+}
+function pickUp(H, p) {
+  p.held = H; H.prop = p; p.rest = false; p.fresh = true; p.v.set(0, 0, 0); p.w.set(0, 0, 0);
+  // snap into the hand the way you'd actually hold it (pipe keeps the spot you grabbed)
+  H.propQ = p.D.hold.q.clone(); H.propOff = p.D.hold.off.clone();
+  if (p.D.pipe) { p.axis(_p1); const s = clamp(_p2.subVectors(H.pos, p.pos).dot(_p1), -p.D.pipe * 0.9, p.D.pipe * 0.9); H.propOff.set(0, 0, s); }
+  haptic(H.side, 0.45, 45); SFX.grab(H.pos);
+}
+function dropProp(H, throwIt) {
+  const p = H.prop; if (!p) return;
+  H.prop = null; p.held = null; p.rest = false;
+  if (throwIt) {
+    p.v.copy(H.vel).multiplyScalar(1.12); p.w.copy(H.angVel);
+    if (p.v.length() > 2.2) { p.thrownT = G.time; SFX.whoosh(p.pos, 0.7); P.stamina = Math.max(0, P.stamina - 3); P.idleT = 0; }
+  }
+}
+function holdPose(H, p) {
+  p.q.copy(H.q).multiply(H.propQ);
+  p.pos.copy(H.propOff).applyQuaternion(H.q).add(H.pos);
+}
+
+// ---------- the props each frame ----------
+const _pc = { e: null, part: null, n: new V3(), pen: 0 };
+function propHitEnemy(p, pt, r, vel, held) {
+  for (const e of G.enemies) {
+    if (e.gone || !e.col) continue;
+    if (Math.abs(pt.x - e.root.position.x) > 1.6 || Math.abs(pt.z - e.root.position.z) > 1.6) continue;
+    for (const c of e.col) {
+      if (c.sphere) _p1.copy(c.a); else closestOnSeg(pt, c.a, c.b, _p1);
+      const d = pt.distanceTo(_p1);
+      if (d >= c.r + r) continue;
+      _p2.subVectors(_p1, pt); // toward the body
+      const spd = Math.min(vel.length(), 11);
+      if (vel.dot(_p2) <= 0 || spd < (held ? 1.6 : 1.8)) return false;
+      const power = spd * p.D.dmg * (held ? 0.62 : 0.55);
+      _p3.copy(vel).normalize();
+      e.receiveHit({ part: c.part, point: pt, dir: _p3, power, kind: 'prop', str: held ? strengthFactor() : 1, hand: held ? held.side : null });
+      SFX.propHit(pt, p.kind, spd);
+      p.lastHit = G.time;
+      if (held) { haptic(held.side, clamp(0.55 + spd * 0.1, 0, 1), 90); P.stamina = Math.max(0, P.stamina - (2 + spd * 0.8 * p.D.mass * 0.6)); P.idleT = 0; }
+      if (p.D.breakable && spd > (held ? 2.4 : 2.6)) { p.smash(); return true; }
+      if (!held) { p.v.multiplyScalar(-0.25); p.v.y = Math.abs(p.v.y) * 0.5 + 0.5; }
+      return true;
+    }
+  }
+  return false;
+}
+function updateProps(dt) {
+  const live = G.mode === 'fight' || G.mode === 'spar';
+  for (const p of PROPS) {
+    if (p.gone) continue;
+    for (let i = 0; i < 3; i++) p.prevPts[i].copy(p.pts[i]);
+    if (p.held) {
+      holdPose(p.held, p); p.samplePts();
+      if (p.fresh) { p.fresh = false; for (let i = 0; i < 3; i++) p.prevPts[i].copy(p.pts[i]); continue; } // just snapped into the hand
+      if (live && G.time - p.lastHit > 0.3) {
+        for (let i = 0; i < 3; i++) {
+          if (!p.D.pipe && i > 0) break;
+          _p3.subVectors(p.pts[i], p.prevPts[i]).multiplyScalar(1 / Math.max(dt, 1e-3));
+          if (propHitEnemy(p, p.pts[i], p.D.pipe ? p.D.rHit : p.D.rHit * 0.8, _p3.clone(), p.held)) break;
+          if (p.gone) break;
+        }
+      }
+      continue;
+    }
+    if (p.rest) continue;
+    // free flight / tumbling
+    p.v.y -= 9.8 * dt;
+    p.pos.addScaledVector(p.v, dt);
+    const wl = p.w.length();
+    if (wl > 1e-3) { _pq.setFromAxisAngle(_p1.copy(p.w).multiplyScalar(1 / wl), wl * dt); p.q.premultiply(_pq).normalize(); }
+    // walls, props and box tops
+    for (const b of ENV) {
+      if (b.playerOnly) continue;
+      const r = Math.max(p.D.rG, Math.min(p.D.rHit, 0.08));
+      if (p.pos.x < b.x0 - r || p.pos.x > b.x1 + r || p.pos.z < b.z0 - r || p.pos.z > b.z1 + r || p.pos.y > b.y1 + p.D.rG) continue;
+      if (b.y1 < 2.5 && p.pos.y - p.v.y * dt >= b.y1 && p.v.y < 0) { p.pos.y = b.y1 + p.D.rG; bounceY(p); continue; }
+      _p1.copy(p.pos); envPush2D(_p1, r, false, true);
+      const nx = _p1.x - p.pos.x, nz = _p1.z - p.pos.z, nl = Math.hypot(nx, nz);
+      if (nl > 1e-5) {
+        p.pos.x = _p1.x; p.pos.z = _p1.z;
+        const vn = (p.v.x * nx + p.v.z * nz) / nl;
+        if (vn < 0) { const sp = p.v.length(); p.v.x -= 1.4 * vn * nx / nl; p.v.z -= 1.4 * vn * nz / nl; p.w.multiplyScalar(0.6); impact(p, sp); }
+      }
+    }
+    if (p.pos.y < p.D.rG) { p.pos.y = p.D.rG; const sp = -p.v.y; bounceY(p); if (sp > 1.2) impact(p, sp); }
+    // thrown into someone
+    p.samplePts();
+    if (live && G.time - p.lastHit > 0.25 && p.v.length() > 1.8) for (let i = 0; i < 3; i++) { if (!p.D.pipe && i > 0) break; if (propHitEnemy(p, p.pts[i], p.D.rHit, p.v, null)) break; if (p.gone) break; }
+    // settle: lie flat once slow on the ground
+    if (p.pos.y <= p.D.rG + 0.003 && p.v.lengthSq() < 0.03 && wl < 1.5) {
+      p.v.set(0, 0, 0); p.w.multiplyScalar(0.8);
+      _p1.set(0, 0, 1).applyQuaternion(p.q); const yaw = Math.atan2(_p1.x, _p1.z);
+      _pq2.setFromAxisAngle(UP, yaw).multiply(p.D.lie);
+      p.q.slerp(_pq2, expK(10, dt));
+      if (wl < 0.05) { p.q.copy(_pq2); p.rest = true; }
+    }
+  }
+  // enemies scuff props lying at their feet
+  for (const e of G.enemies) {
+    if (!e.standing() || e.gone) continue;
+    const sp = Math.hypot(e.vel.x, e.vel.z); if (sp < 0.4) continue;
+    for (const p of PROPS) {
+      if (p.gone || p.held || p.pos.y > 0.3) continue;
+      const dx = p.pos.x - e.root.position.x, dz = p.pos.z - e.root.position.z, d = Math.hypot(dx, dz);
+      if (d < 0.28 * e.s && d > 1e-4 && p.D.mass < 2) { p.rest = false; p.v.x += dx / d * sp * 0.6 + e.vel.x * 0.4; p.v.z += dz / d * sp * 0.6 + e.vel.z * 0.4; p.v.y += 0.4; p.w.set(rand(-6, 6), rand(-6, 6), rand(-6, 6)); SFX.clatter(p.pos, p.kind); }
+    }
+  }
+  updateShards(dt);
+}
+function bounceY(p) {
+  p.v.y = -p.v.y * (p.kind === 'can' || p.kind === 'lid' ? 0.35 : 0.22);
+  if (Math.abs(p.v.y) < 0.4) p.v.y = 0;
+  p.v.x *= 0.7; p.v.z *= 0.7; p.w.multiplyScalar(0.7);
+}
+function impact(p, sp) {
+  if (p.D.breakable && sp > 3.2) { p.smash(); return; }
+  if (sp > 1) SFX.clatter(p.pos, p.kind, sp);
+}
+// a held trash-can lid is a shield
+const _sn = new V3();
+function shieldBlocks(pt, r) {
+  for (const H of HL) {
+    const p = H.prop; if (!p || !p.D.shield) continue;
+    p.axis(_sn); _p1.subVectors(pt, p.pos);
+    const h = _p1.dot(_sn); if (Math.abs(h) > 0.05 + r) continue;
+    _p1.addScaledVector(_sn, -h); if (_p1.length() > 0.27 + r * 0.5) continue;
+    return H;
+  }
+  return null;
+}
 // ============================================================
 // Part D: combat systems (solid hands, strikes, elbows, grabs,
 // throws, blocks), director, waves, menus, main loop
@@ -1717,9 +2015,9 @@ function resolveHand(H, dt) {
   }
   H.contact = contact;
   if (contact && hitInfo.e && G.mode !== 'menu' && !G.paused) {
-    const appr = -H.vel.dot(hitInfo.n);
+    const appr = Math.min(9, -H.vel.dot(hitInfo.n)); // clamp: a tracking glitch can't fake a superhuman punch
     const fresh = !wasContact || G.time - H.lastStrike > 0.35;
-    if (appr > 1.3 && fresh && G.time - H.lastStrike > 0.18) strike(H, hitInfo, appr);
+    if (appr > 1.3 && fresh && G.time - H.lastStrike > 0.18) { if (!H.prop) strike(H, hitInfo, appr); else H.lastStrike = G.time; }
     else {
       const depth = H.target.distanceTo(H.pos);
       if (depth > 0.015) {
@@ -1826,6 +2124,7 @@ function dropGrab(H) {
   const e = H.grab.e; H.lastGrabE = e; H.grab = null; e.releasedBy(H);
 }
 function tryGrab(H) {
+  const pr = nearestProp(H);
   let best = null, bd = 0.075;
   for (const e of G.enemies) {
     if (e.gone || !e.col || !e.standing() || e.state === 'thrown' || e.state === 'flee') continue;
@@ -1836,6 +2135,7 @@ function tryGrab(H) {
       if (d < bd) { bd = d; best = { e, part: c.part === 'head' ? 'torso' : c.part }; }
     }
   }
+  if (pr && (!best || pr.d < bd)) { pickUp(H, pr.p); return; } // a bottle, brick, lid, pipe...
   if (!best) return;
   H.grab = { e: best.e, part: best.part, local: best.e.toLocal(H.pos, new V3()) };
   best.e.grabbedBy(H, best.part);
@@ -1861,6 +2161,7 @@ function updateGrabs(dt) {
   pullAcc.clear();
   for (const H of HL) {
     if (!H.has) continue;
+    if (H.prop) { if (H.grip < 0.35) dropProp(H, true); continue; }
     if (H.grab) {
       const g = H.grab, e = g.e;
       if (H.grip < 0.35 || e.gone || !live) { releaseGrab(H); continue; }
@@ -1869,8 +2170,8 @@ function updateGrabs(dt) {
       _h2.subVectors(H.target, _h1);
       if (Math.hypot(_h2.x, _h2.z) > 0.75 || _h2.length() > 0.95) { dropGrab(H); haptic(H.side, 0.4, 40); continue; } // grip slips
       H.pos.copy(_h1); // the hand stays visually locked on the grab point
-      if (!pullAcc.has(e)) pullAcc.set(e, { v: new V3(), n: 0 });
-      const A = pullAcc.get(e); A.v.add(_h2); A.n++;
+      if (!pullAcc.has(e)) pullAcc.set(e, { v: new V3(), n: 0, dy: 0, collar: false });
+      const A = pullAcc.get(e); A.v.add(_h2); A.n++; A.dy += _h2.y; if (g.part === 'torso') A.collar = true;
     } else if (live && H.grip > 0.6 && H.gripPrev <= 0.6) tryGrab(H);
   }
   for (const [e, A] of pullAcc) {
@@ -1882,6 +2183,18 @@ function updateGrabs(dt) {
     e.dirToLocal(A.v, _h3);
     e.sp.lf.kick(clamp(_h3.z, -0.4, 0.4) * 14 * dt); e.sp.ls.kick(clamp(_h3.x, -0.4, 0.4) * 12 * dt);
     if (A.v.length() > 0.25) e.balance -= 10 * dt;
+    // LIFT: hold the collar and raise your hands. Two hands for the big ones (or wear them down first).
+    const dy = A.dy / A.n, w = e.T.weight;
+    const canLift = A.collar && P.stamina > 3 && ((A.n > 1 && (w < 1.5 || e.balance < 60)) || (A.n === 1 && w <= 1.0 && e.balance < 85));
+    if (canLift) {
+      e.lift = clamp(e.lift + clamp(dy, -0.3, 0.4) * 7 * dt, 0, (A.n > 1 ? 0.5 : 0.3) * e.s);
+      e.liftDrop = Math.max(e.liftDrop, e.lift);
+      if (e.lift > 0.04) { P.stamina = Math.max(0, P.stamina - (A.n > 1 ? 6 : 12) * dt); P.idleT = 0; if (Math.random() < dt * 6) for (const H of e.grabs) haptic(H.side, 0.25, 40); }
+    } else {
+      e.lift = Math.max(0, e.lift - dt * 0.8);
+      if (A.collar && dy > 0.15 && Math.random() < dt * 8) for (const H of e.grabs) haptic(H.side, 0.2, 30); // straining, too heavy
+    }
+    if (P.stamina <= 0.5 && e.lift > 0.05) { for (const H of e.grabs.slice()) dropGrab(H); continue; } // your arms give out
     if (A.n === 2) checkOSH(e);
   }
 }
@@ -1916,6 +2229,8 @@ function enemyAttacks(dt) {
     _bot.copy(_top); _bot.y = P.head.y - 0.75 * P.hs;
     for (let k = 1; k <= 3 && !e.contacted; k++) {
       _h1.lerpVectors(a, b, k / 3);
+      const SH = shieldBlocks(_h1, fr);
+      if (SH) { blockHit(e, SH, _h1, _h4, fsp, true); break; }
       for (const H of HL) {
         if (!H.has || e.contacted) continue;
         let blk = _h1.distanceTo(H.pos) < fr + HAND_R + 0.006 + gb;
@@ -1929,12 +2244,13 @@ function enemyAttacks(dt) {
     }
   }
 }
-function blockHit(e, H, p, fdir, fsp) {
+function blockHit(e, H, p, fdir, fsp, shield) {
   const parry = H.vel.dot(fdir) < -1.6;
+  if (shield) SFX.clang(p);
   e.onStrikeContact(parry ? 'parry' : 'block', H);
   H.offVel.addScaledVector(fdir, Math.min(2.2, fsp * 0.35) * (parry ? 0.4 : 1));
   haptic(H.side, parry ? 0.8 : 1, parry ? 80 : 110); SFX.block(p);
-  const cost = (parry ? 4 : 7) * (P.guard ? 0.55 : 1) * (P.stamina < 20 ? 1.5 : 1) * (e.atk.def.big ? 1.6 : 1);
+  const cost = (parry ? 4 : 7) * (shield ? 0.4 : 1) * (P.guard ? 0.55 : 1) * (P.stamina < 20 ? 1.5 : 1) * (e.atk.def.big ? 1.6 : 1);
   P.stamina = Math.max(0, P.stamina - cost); P.idleT = 0;
   if (P.stamina <= 0 && !parry) hurtPlayer(e.T.dmg * e.atk.def.dmg * 0.4, 'head'); // guard broken through
 }
@@ -1977,7 +2293,7 @@ function spawn(type, where) {
   else { pos = new V3(rand(-1.2, 1.2), 0, -14.6); entry = new V3(rand(-1.3, 1.3), 0, -8.2); }
   const e = new Enemy(type, pos, entry); G.enemies.push(e); return e;
 }
-function clearEnemies() { for (const H of HL) if (H.grab) dropGrab(H); for (const e of G.enemies) if (!e.gone) e.remove(); G.enemies = []; G.pending = []; }
+function clearEnemies() { for (const H of HL) { if (H.grab) dropGrab(H); if (H.prop) dropProp(H, false); } for (const e of G.enemies) if (!e.gone) e.remove(); G.enemies = []; G.pending = []; }
 function resetPlayer() { P.health = 100; P.stamina = 100; P.vel.set(0, 0, 0); P.vy = 0; P.y = 0; P.grounded = true; P.dmgFlash = 0; P.invuln = 1; recentre(0, 1.5); }
 function recentre(x, z) {
   _h1.set(0, 0, -1).applyQuaternion(P.headLQ);
@@ -1986,8 +2302,8 @@ function recentre(x, z) {
   rig.position.x = x - _h2.x; rig.position.z = z - _h2.z;
   headToWorld(); for (const H of HL) H.init = false;
 }
-function startFight() { clearEnemies(); clearFX(); resetPlayer(); hideMenu(); G.mode = 'fight'; G.paused = false; startWave(1); }
-function startSpar() { clearEnemies(); clearFX(); resetPlayer(); hideMenu(); G.mode = 'spar'; G.paused = false; spawn('spar', 'street'); banner('SPARRING', 'Slow telegraphs, light hits. Learn the feel.', 3.5); }
+function startFight() { clearEnemies(); clearFX(); resetProps(); resetPlayer(); hideMenu(); G.mode = 'fight'; G.paused = false; startWave(1); }
+function startSpar() { clearEnemies(); clearFX(); resetProps(); resetPlayer(); hideMenu(); G.mode = 'spar'; G.paused = false; spawn('spar', 'street'); banner('SPARRING', 'Slow telegraphs, light hits. Learn the feel.', 3.5); }
 function startWave(n) {
   G.wave = n; G.waveT = 0;
   G.enemies = G.enemies.filter(e => { if (e.gone || e.state === 'flee') { if (!e.gone) e.remove(); return false; } return true; });
@@ -2072,9 +2388,11 @@ function drawInfo() {
       'Push: press an open hand into a chest.   Dodge: lean or step.',
       'Grab: grip near collar, arm or wrist. Throw: swing and let go.',
       'Over-the-shoulder: two-hand grab, pull up and back over your head.',
+      'Lift: grab a collar, raise your hands. Pin: shove them into a wall.',
+      'Pick up bottles, bricks, lids, pipes. Swing them or throw them.',
     ];
-    x.fillStyle = '#cfc7bf'; x.font = '23px sans-serif';
-    lines.forEach((l, i) => x.fillText(l, 48, 232 + i * 28));
+    x.fillStyle = '#cfc7bf'; x.font = '20px sans-serif';
+    lines.forEach((l, i) => x.fillText(l, 48, 222 + i * 22));
   });
 }
 function makeButton(label, fn, col, row) {
@@ -2148,7 +2466,7 @@ function updateHandVisuals() {
     const M = H.model;
     M.g.quaternion.copy(H.q);
     M.g.position.copy(HAND_OFF).applyQuaternion(H.q).negate().add(H.pos);
-    poseFingers(M, H.grab ? 1 : H.grip, H.grab ? 1 : H.trig);
+    const closed = H.grab || H.prop; poseFingers(M, closed ? 1 : H.grip, closed ? 1 : H.trig);
     H.tip.set(0, -0.135, -0.031).applyQuaternion(H.q).add(M.g.position); // extended index fingertip
   }
 }
@@ -2200,7 +2518,7 @@ function loop(t, frame) {
   if (!G.paused) { for (const e of G.enemies) e.update(dt); director(dt); }
   for (const H of HL) resolveHand(H, dt);
   if (!G.paused) updateGrabs(dt);
-  updateHandVisuals(); updateArms(); updateBody(dt);
+  updateHandVisuals(); updateProps(G.paused ? 0 : dt); updateArms(); updateBody(dt);
   const live = !G.paused && (G.mode === 'fight' || G.mode === 'spar');
   if (live) { updateElbows(); enemyAttacks(dt); updateCondition(dt); swishCheck(); }
   updateFX(dt);
@@ -2212,7 +2530,7 @@ function loop(t, frame) {
 }
 
 // ---------- boot ----------
-buildAlley(); buildRain(); syncRig();
+buildAlley(); buildRain(); buildProps(); syncRig();
 renderer.setAnimationLoop(loop);
 async function enterVR() {
   initAudio();
@@ -2230,6 +2548,6 @@ async function enterVR() {
   } catch (e) { st.textContent = 'Could not start VR: ' + e.message + ' — if you are viewing inside another app, open the HTML file directly in the Quest Browser.'; }
 }
 if (!TEST) document.getElementById('enter').addEventListener('click', enterVR);
-if (TEST) Object.assign(globalThis.__CRIMSON_TEST, { figure, CM, G, P, HANDS, HL, CTRL, loop, startFight, startSpar, onStartVR, spawn, menu, togglePause, settings, rig, Enemy });
+if (TEST) Object.assign(globalThis.__CRIMSON_TEST, { PROPS, figure, CM, G, P, HANDS, HL, CTRL, loop, startFight, startSpar, onStartVR, spawn, menu, togglePause, settings, rig, Enemy });
 </script>
 </body></html>
