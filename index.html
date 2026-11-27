@@ -504,6 +504,7 @@ const Settings = {
   get(k) { return this.d[k]; },
 };
 
+const _ftm = new M4(), _ftm2 = new M4(), _tq2 = new QT();
 // ============================================================
 // ENGINE — renderer, XR rig, input, hands, player movement
 // ============================================================
@@ -537,6 +538,10 @@ const Engine = {
       Player.update(dt);
       Hands.update(dt);
       if (this.world) this.world.update(dt);
+      // vehicles moved this frame: put the seated player (and their hands) back on the seat *after* the move,
+      // otherwise the cab lags a frame behind your head and the wheel reads stale hand positions (shaking)
+      if (Player.seat) { this.rig.updateMatrixWorld(); const before = _ftm.copy(this.rig.matrixWorld); Player.followSeat(); Input.shiftPoses(_ftm2.copy(this.rig.matrixWorld).multiply(before.invert())); Hands.update(0); }
+      if (this.world && this.world.late) for (const f of this.world.late) f(dt);
       IX.update(dt);
       UI.update(dt);
       Portals.update(dt);
@@ -625,6 +630,8 @@ const Input = {
     }
     if (this.override) this.override(this.hands, dt);
   },
+  // apply a rigid transform to this frame's hand poses (used when the seat moved the rig)
+  shiftPoses(M) { const q = _tq2.setFromRotationMatrix(M); for (const h of this.hands) { h.pos.applyMatrix4(M); h.prevPos.applyMatrix4(M); h.quat.premultiply(q); h.prevQuat.premultiply(q); h.rayO.applyMatrix4(M); h.rayD.transformDirection(M); } },
   throwVel(h, out) { out.set(0, 0, 0); const n = h.hist.length; if (!n) return out; let wsum = 0; h.hist.forEach((v, i) => { const w = i + 1; out.addScaledVector(v, w); wsum += w; }); return out.divideScalar(wsum); },
   desktopUpdate(dt) {
     const k = this.keys, cam = Engine.camera; const L = this.L, R = this.R;
@@ -743,16 +750,24 @@ const Player = {
       if (!this.seat) rig.rotation.y = this.yaw; cam.rotation.set(this.pitch, this.seat ? this.yaw : 0, 0, 'YXZ');
       cam.position.y = 1.65 + hAdj;
     }
-    if (this.seat) {
+    if (this.seat) { this.followSeat(); return; }
+    if (this.frozen) return;
+    this._walk(dt, hAdj);
+  },
+  followSeat() {
+    const rig = Engine.rig;
+    {
       // place rig so the head's sit-time local offset lands on the seat eye point
       this.seat.updateMatrixWorld(); const sq = this.seat.getWorldQuaternion(new QT());
       const eye = this.seatLocal.clone().applyMatrix4(this.seat.matrixWorld);
       rig.quaternion.copy(sq); const off = this.headLocal.clone(); if (Engine.desktop) off.set(0, 1.65, 0); // seat height is exact: no seated/height boost in vehicles
       off.applyQuaternion(sq); rig.position.copy(eye).sub(off);
       if (Engine.desktop) { rig.quaternion.copy(sq); }
-      this.vignette.visible = false; rig.updateMatrixWorld(); return;
+      this.vignette.visible = false; rig.updateMatrixWorld();
     }
-    if (this.frozen) return;
+  },
+  _walk(dt, hAdj) {
+    const rig = Engine.rig, cam = Engine.camera, L = Input.L, R = Input.R, W = Engine.world;
     // turning (right stick)
     const head = this.headWorld(_tv.clone());
     let turn = 0; const rx = R.stick.x;
@@ -5756,7 +5771,7 @@ class Truck {
     this.engine = null;
     this.setupDoors(); this.setupCab(); this.setupDisplays(); this.setupMirrors(); this.setupLights(); this.setupHands(); this.setupActions();
     this.ready = true;
-    W.onUpdate(dt => this.update(dt));
+    W.onUpdate(dt => this.update(dt)); (W.late = W.late || []).push(() => this.updateGhosts());
   }
   get gearName() { return this.gearSel; }
   get rpm() { return this.P.rpm; }
@@ -5984,8 +5999,8 @@ Object.assign(Truck.prototype, {
     this._pv = (this._pv || 0) + ((tgtP - this.pitch) * 140 - (this._pv || 0) * 15) * dt; this.pitch += this._pv * dt;
     this._rv = (this._rv || 0) + ((tgtR - this.rollA) * 120 - (this._rv || 0) * 13) * dt; this.rollA += this._rv * dt;
     // road texture: tiny vertical shake that grows with speed (more on grass)
-    const rough = (this.surf === 'grass' ? 0.012 : this.surf === 'shoulder' ? 0.0025 : 0.0009) * clamp(Math.abs(P.vx) / 15, 0, 1.5);
-    this.bodyY = damp(this.bodyY, (Math.random() - 0.5) * rough, 25, dt);
+    const rough = (this.surf === 'grass' ? 0.007 : this.surf === 'shoulder' ? 0.0012 : 0.0003) * clamp(Math.abs(P.vx) / 15, 0, 1.2); const od = this.S.odo || 0;
+    this.bodyY = damp(this.bodyY, (vnoise(od * 0.7, 3.1) - 0.5) * 2 * rough, 12, dt); // smooth road texture, not random jitter
     this.body.position.set(0, 0.02 + this.bodyY - Math.abs(this.pitch) * 0.2, 0); this.body.rotation.set(this.pitch, 0, this.rollA);
     // wheels
     for (const c of this.M.corners) { c.spin.rotation.x -= P.vx * dt / TK.R; if (c.front) c.steer.rotation.y = this.steer * 1.0; c.corner.position.y = TK.R; }
@@ -6045,7 +6060,6 @@ Object.assign(Truck.prototype, {
     const near = this.seated || Player.headWorld(_wv2).distanceTo(this.root.position) < 6;
     if (near) { if (Engine.frame % 5 === 0) this.cluster.redraw(); if (Engine.frame % (this.tab === 'map' ? 10 : 30) === 0) this.screen.redraw(); }
     if (this.seated && Engine.frame % 2 === 0) this.renderMirror();
-    this.updateGhosts();
     // pedals
     this.gasPedal.rotation.x = this.gas * 0.32; this.brakePedal.rotation.x = this.brake * 0.28;
   },
